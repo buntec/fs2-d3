@@ -70,9 +70,21 @@ ThisBuild / Test / jsEnv := {
   }
 }
 
-lazy val scalajsDomVersion = "2.1.0"
 lazy val scalacheckVersion = "1.16.0"
 lazy val munitVersion = "1.0.0-M5"
+
+lazy val scalajsDomVersion = "2.3.0"
+lazy val domtypesVersion = "0.15.3"
+lazy val circeVersion = "0.14.3"
+lazy val catsVersion = "2.8.0"
+lazy val catsEffectVersion = "3.3.14"
+lazy val fs2Version = "3.3.0"
+lazy val kindProjectorVersion = "0.13.2"
+lazy val http4sDomVersion = "0.2.3"
+lazy val http4sVersion = "0.23.16"
+lazy val betterMonadicForVersion = "0.3.1"
+lazy val scalaJsSnabbdomVersion = "0.2.0-M3"
+lazy val fs2DomVersion = "0.1.0-M1"
 
 lazy val root = tlCrossRootProject.aggregate(d3)
 
@@ -83,6 +95,13 @@ lazy val d3 = (project
     name := "scala-js-d3",
     libraryDependencies ++= Seq(
       "org.scala-js" %%% "scalajs-dom" % scalajsDomVersion,
+      "org.typelevel" %%% "cats-core" % catsVersion,
+      "org.typelevel" %%% "cats-free" % catsVersion,
+      "org.typelevel" %%% "cats-effect" % catsEffectVersion,
+      "org.typelevel" %%% "cats-effect-kernel" % catsEffectVersion,
+      "org.typelevel" %%% "cats-effect-std" % catsEffectVersion,
+      "co.fs2" %%% "fs2-core" % fs2Version,
+      "com.armanbilge" %%% "fs2-dom" % fs2DomVersion,
       "org.scalameta" %%% "munit" % munitVersion % Test,
       "org.scalacheck" %%% "scalacheck" % scalacheckVersion % Test,
       "org.scala-js" %%% "scala-js-macrotask-executor" % "1.0.0" % Test
