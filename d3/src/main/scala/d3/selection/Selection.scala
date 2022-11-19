@@ -4,79 +4,35 @@ import org.scalajs.dom
 import scalajs.js
 import scala.collection.mutable.ArrayBuffer
 
-trait Selection {
+import Selection._
 
-  def select(selector: String): Selection
+sealed abstract class Selection[F[_], N, D] {
 
-  def selectAll(selector: String): Selection
+  def select[N0](selector: String): Selection[F, N0, D] = new Bind[F, N, N0, D, D](this) {
+  }
 
-  def selectChild(selector: String): Selection
+  def selectAll[N0](selector: String): Selection[F, N0, D] = ???
+
+  def append[N0](tpe: String): Selection[F, N0, D] = ???
+
+  def data[D0](value: List[D0], key: D0 => String): Selection[F, N, D0] = ???
 
 }
 
 object Selection {
 
-  def apply(
-      groups: Seq[Seq[dom.Element]],
-      parents: Seq[dom.Element]
-  ): Selection = new Selection {
+  def select[F[_], N](selector: String): Selection[Nothing, N, Nothing] =
+    SingleElement[N](selector)
 
-    override def selectChild(selector: String): Selection = ???
-
-    private val _groups = groups.toArray.map(_.toArray)
-    private val _parents = parents.toArray
-
-    override def selectAll(selector: String): Selection = {
-
-      val m = groups.length
-      val subgroups = ArrayBuffer.empty[Array[dom.Element]]
-      val newParents = ArrayBuffer.empty[dom.Element]
-      var j = 0
-      while (j < m) {
-        val group = _groups(j)
-        val n = group.length
-        var i = 0
-        while (i < n) {
-          val node = group(i)
-          if (node != null) {
-            subgroups.addOne(node.querySelectorAll(selector).toArray)
-            newParents.addOne(node)
-          }
-          i += 1
-        }
-        j += 1
-      }
-      apply(subgroups.map(_.toSeq).toSeq, newParents.toSeq)
-
-    }
-
-    override def select(selector: String): Selection = {
-      val m = groups.length
-      val subgroups = Array.ofDim[Array[dom.Element]](m)
-      var j = 0
-      while (j < m) {
-        val group = _groups(j)
-        val n = group.length
-        subgroups(j) = Array.ofDim[dom.Element](n)
-        val subgroup = subgroups(j)
-        var i = 0
-        while (i < n) {
-          val node = group(i)
-          val subnode = node.querySelector(selector)
-          if (node != null && subnode != null) {
-            if (node.asInstanceOf[js.Dynamic].__data__ != null) {
-              subnode.asInstanceOf[js.Dynamic].__data__ == node
-                .asInstanceOf[js.Dynamic]
-                .__data__
-            }
-            subgroup(i) = subnode
-          }
-          i += 1
-        }
-        j += 1
-      }
-      apply(subgroups.map(_.toSeq).toSeq, parents)
-    }
-
+  private abstract class Bind[F[_], N1, N2, D1, D2](
+      val step: Selection[F, N1, D1]
+  ) extends Selection[F, N2, D2] {
+    def cont(r: Terminal[N2]): Selection[F, N2, D2]
   }
+
+  private sealed abstract class Terminal[N]
+      extends Selection[Nothing, N, Nothing]
+
+  private case class SingleElement[N](selector: String) extends Terminal[N]
+
 }
