@@ -7,20 +7,20 @@ import cats.syntax.all._
 import Selection._
 import cats.effect.kernel.Async
 
-sealed abstract class Selection[+N, +D, +PN, +PD] {
+sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
 
-  def select[N0](selector: String): Selection[N0, D, PN, PD] =
-    Continue(this, Select[N, D, PN, PD](selector))
+  def select[N0](selector: String): Selection[F, N0, D, PN, PD] =
+    Continue(this, Select[F, N, D, PN, PD](selector))
 
   def select[N0](
       selector: (N, D, Int, List[N]) => N0
-  ): Selection[N0, D, PN, PD] =
-    Continue(this, SelectFn[N, D, PN, PD, N0](selector))
+  ): Selection[F, N0, D, PN, PD] =
+    Continue(this, SelectFn[F, N, D, PN, PD, N0](selector))
 
-  def selectAll[N0, D0](selector: String): Selection[N0, D0, N, D] =
-    Continue(this, SelectAll[N, D, PN, PD](selector))
+  def selectAll[N0, D0](selector: String): Selection[F, N0, D0, N, D] =
+    Continue(this, SelectAll[F, N, D, PN, PD](selector))
 
-  def attr(name: String, value: String): Selection[N, D, PN, PD] =
+  def attr(name: String, value: String): Selection[F, N, D, PN, PD] =
     Continue(this, SetAttr(name, value))
 
   // def append(tpe: String): Selection[F, D] = ???
@@ -31,17 +31,31 @@ sealed abstract class Selection[+N, +D, +PN, +PD] {
 
 object Selection {
 
+  implicit class SelectionOps[F[_], N, D, PN, PD](
+      private val sel: Selection[F, N, D, PN, PD]
+  ) extends AnyVal {
+
+    def compile(implicit F: Async[F]) = Selection.compile(sel)
+
+  }
+
   def compile[F[_], N, D, PN, PD](
-      selection: Selection[N, D, PN, PD]
-  )(implicit F: Async[F]) = {
+      selection: Selection[F, N, D, PN, PD]
+  )(implicit F: Async[F]): F[Unit] = {
 
     def go[N0, D0, PN0, PD0](
-        s: Selection[N0, D0, PN0, PD0]
-    ): F[Terminal[N0, D0, PN0, PD0]] = {
+        s: Selection[F, N0, D0, PN0, PD0]
+    ): F[Terminal[F, N0, D0, PN0, PD0]] = {
       s match {
         case Select(selector) =>
           F.delay(dom.document.querySelector(selector)).map { elm =>
             val groups = List(List(elm.asInstanceOf[N0]))
+            val parents = List(dom.document.documentElement.asInstanceOf[PN0])
+            Terminal(groups, parents)
+          }
+        case SelectAll(selector) =>
+          F.delay(dom.document.querySelectorAll(selector)).map { nodes =>
+            val groups = List(nodes.toList.asInstanceOf[List[N0]])
             val parents = List(dom.document.documentElement.asInstanceOf[PN0])
             Terminal(groups, parents)
           }
@@ -89,13 +103,14 @@ object Selection {
                 )
               )
             }
-            case SelectAll(selector)   => ???
-            case SelectAllFn(selector) => ???
+            case SelectAll(_)   => throw new NotImplementedError("boom")
+            case SelectAllFn(_) => throw new NotImplementedError("boom")
           }
         case Continue(current, step) =>
           go(current).flatMap { s =>
             go(Continue(s, step))
           }
+        case _ => throw new IllegalStateException("boom")
       }
     }
 
@@ -103,39 +118,39 @@ object Selection {
 
   }
 
-  def select[N, D](
+  def select[F[_], N, D](
       selector: String
-  ): Selection[N, D, dom.HTMLElement, Nothing] =
-    Select[N, D, dom.HTMLElement, Nothing](selector)
+  ): Selection[F, N, D, dom.HTMLElement, Nothing] =
+    Select[F, N, D, dom.HTMLElement, Nothing](selector)
 
-  private sealed abstract class Action[N, D, PN, PD]
-      extends Selection[N, D, PN, PD]
+  private sealed abstract class Action[+F[_], N, D, PN, PD]
+      extends Selection[F, N, D, PN, PD]
 
-  private case class SetAttr[N, D, PN, PD](key: String, value: String)
-      extends Action[N, D, PN, PD]
+  private case class SetAttr[+F[_], N, D, PN, PD](key: String, value: String)
+      extends Action[F, N, D, PN, PD]
 
-  private case class Select[N, D, PN, PD](selector: String)
-      extends Action[N, D, PN, PD]
+  private case class Select[+F[_], N, D, PN, PD](selector: String)
+      extends Action[F, N, D, PN, PD]
 
-  private case class SelectFn[N, D, PN, PD, N0](
+  private case class SelectFn[+F[_], N, D, PN, PD, N0](
       selector: (N, D, Int, List[N]) => N0
-  ) extends Action[N, D, PN, PD]
+  ) extends Action[F, N, D, PN, PD]
 
-  private case class SelectAll[N, D, PN, PD](selector: String)
-      extends Action[N, D, PN, PD]
+  private case class SelectAll[+F[_], N, D, PN, PD](selector: String)
+      extends Action[F, N, D, PN, PD]
 
-  private case class SelectAllFn[N, D, PN, PD, N0](
+  private case class SelectAllFn[+F[_], N, D, PN, PD, N0](
       selector: (N, D, Int, List[N]) => N0
-  ) extends Action[N0, D, PN, PD]
+  ) extends Action[F, N0, D, PN, PD]
 
-  private case class Terminal[N, D, PN, PD](
+  private case class Terminal[+F[_], N, D, PN, PD](
       groups: List[List[N]],
       parents: List[PN]
-  ) extends Selection[N, D, PN, PD]
+  ) extends Selection[F, N, D, PN, PD]
 
-  private case class Continue[N, D, PN, PD, N0, D0, PN0, PD0](
-      current: Selection[N, D, PN, PD],
-      step: Action[N, D, PN, PD]
-  ) extends Selection[N0, D0, PN0, PD0]
+  private case class Continue[+F[_], N, D, PN, PD, N0, D0, PN0, PD0](
+      current: Selection[F, N, D, PN, PD],
+      step: Action[F, N, D, PN, PD]
+  ) extends Selection[F, N0, D0, PN0, PD0]
 
 }

@@ -86,7 +86,7 @@ lazy val betterMonadicForVersion = "0.3.1"
 lazy val scalaJsSnabbdomVersion = "0.2.0-M3"
 lazy val fs2DomVersion = "0.1.0-M1"
 
-lazy val root = tlCrossRootProject.aggregate(d3)
+lazy val root = tlCrossRootProject.aggregate(d3, examples)
 
 lazy val d3 = (project
   .in(file("d3")))
@@ -107,3 +107,16 @@ lazy val d3 = (project
       "org.scala-js" %%% "scala-js-macrotask-executor" % "1.0.0" % Test
     )
   )
+
+lazy val examples = (project in file("examples"))
+  .enablePlugins(ScalaJSPlugin, NoPublishPlugin)
+  .settings(
+    scalaJSUseMainModuleInitializer := true,
+    libraryDependencies ++= Seq(
+      "org.scala-js" %%% "scalajs-dom" % scalajsDomVersion,
+      "io.circe" %%% "circe-generic" % circeVersion,
+      "io.circe" %%% "circe-literal" % circeVersion,
+      "io.circe" %%% "circe-parser" % circeVersion
+    )
+  )
+  .dependsOn(d3)

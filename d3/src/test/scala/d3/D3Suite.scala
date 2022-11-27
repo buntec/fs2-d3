@@ -41,15 +41,21 @@ package d3
 import org.scalajs.dom
 import scalajs.js
 import scala.collection.mutable.ListBuffer
+import d3.selection
 
-class D3Suite extends BaseSuite {
+class D3Suite extends munit.FunSuite {
 
-  group("foo") {
+  test("basics") {
 
-    test("bar") {
-      assertEquals(1.0, 1.0)
-    }
+    val foo = selection.Selection
+      .select[F, dom.HTMLDivElement, Unit]("div")
+      .select[dom.HTMLParagraphElement]("p")
+      .attr("fill", "green")
 
+  }
+
+  test("bar") {
+    assertEquals(1.0, 1.0)
   }
 
 }
