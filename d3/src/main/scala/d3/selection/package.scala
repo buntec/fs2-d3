@@ -2,7 +2,4 @@ package d3
 
 import org.scalajs.dom
 
-package object selection {
-
-
-}
+package object selection {}

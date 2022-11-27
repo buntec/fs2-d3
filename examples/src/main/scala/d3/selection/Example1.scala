@@ -11,7 +11,6 @@ class Example1[F[_]](implicit F: Async[F]) {
 
   val f1 = F.delay {
 
-    println("foo")
     val elm = dom.document.querySelector("#app")
     elm.setAttribute("foo", "bar")
     // elm.append(dom.document.createElement("span"))
@@ -21,7 +20,12 @@ class Example1[F[_]](implicit F: Async[F]) {
   def run: F[Unit] = {
 
     val sel =
-      Selection.select[F, dom.HTMLDivElement, Unit]("#app").attr("foo", "qux")
+      Selection
+        .select[F, dom.HTMLDivElement, Unit]("#app")
+        .append("span")
+        .append("p")
+        .attr("foo", "bar")
+        .text("Hello, World!")
 
     sel.compile
 
