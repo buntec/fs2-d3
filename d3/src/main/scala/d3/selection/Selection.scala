@@ -10,23 +10,23 @@ import cats.effect.kernel.Async
 sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
 
   def select[N0](selector: String): Selection[F, N0, D, PN, PD] =
-    Continue(this, Select[F, N, D, PN, PD](selector))
+    Continue(this, Select(selector))
 
   def select[N0, F1[x] >: F[x]](
       selector: (N, D, Int, List[N]) => F1[N0]
   ): Selection[F1, N0, D, PN, PD] =
-    Continue(this, SelectFn[F1, N, D, PN, PD, N0](selector))
+    Continue(this, SelectFn(selector))
 
   def each[F1[x] >: F[x]](
       fn: (N, D, Int, List[N]) => F1[Unit]
   ): Selection[F1, N, D, PN, PD] =
-    Continue(this, Each[F1, N, D, PN, PD](fn))
+    Continue(this, Each(fn))
 
   def text(value: String): Selection[F, N, D, PN, PD] =
     Continue(this, Text(value))
 
   def selectAll[N0, D0](selector: String): Selection[F, N0, D0, N, D] =
-    Continue(this, SelectAll[F, N, D, PN, PD](selector))
+    Continue(this, SelectAll(selector))
 
   def attr(name: String, value: String): Selection[F, N, D, PN, PD] =
     Continue(this, SetAttr(name, value))
@@ -34,18 +34,8 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   def append[N0](tpe: String): Selection[F, N0, D, PN, PD] =
     Continue(this, Append(tpe))
 
-  def data[D0](data: List[D0]): UpdateSelection[F, N, D, PN, PD] = ???
-
-  // def data(value: List[D0], key: D0 => String): Selection[F, D0] = ???
-
-}
-
-sealed abstract class UpdateSelection[+F[_], +N, +D, +PN, +PD]
-    extends Selection[F, N, D, PN, PD] {
-
-  def exit: Selection[F, N, D, PN, PD]
-
-  def enter: Enter[F, N, D, PN, PD]
+  def data[D0](data: List[D0]): Selection[F, N, D, PN, PD] =
+    Continue(this, Data(data))
 
 }
 
@@ -90,6 +80,20 @@ object Selection {
             s"groups: ${groups.map(group => group.mkString(", ")).mkString("\n")}"
           )
           step match {
+            case Data(data) =>
+              groups.traverse_ {
+                _.traverse_ { elm =>
+                  F.delay(
+                    () // TODO
+                  )
+                }
+              } *> F.pure(
+                Terminal(
+                  groups.asInstanceOf[List[List[N0]]],
+                  parents.asInstanceOf[List[PN0]]
+                )
+              )
+
             case Text(value) =>
               go(
                 Continue(
@@ -219,6 +223,10 @@ object Selection {
 
   private case class Each[F[_], N, D, PN, PD](
       fn: (N, D, Int, List[N]) => F[Unit]
+  ) extends Action[F, N, D, PN, PD]
+
+  private case class Data[F[_], N, D, PN, PD](
+      data: List[D]
   ) extends Action[F, N, D, PN, PD]
 
   private case class Select[+F[_], N, D, PN, PD](selector: String)
