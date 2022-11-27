@@ -34,7 +34,24 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   def append[N0](tpe: String): Selection[F, N0, D, PN, PD] =
     Continue(this, Append(tpe))
 
+  def data[D0](data: List[D0]): UpdateSelection[F, N, D, PN, PD] = ???
+
   // def data(value: List[D0], key: D0 => String): Selection[F, D0] = ???
+
+}
+
+sealed abstract class UpdateSelection[+F[_], +N, +D, +PN, +PD]
+    extends Selection[F, N, D, PN, PD] {
+
+  def exit: Selection[F, N, D, PN, PD]
+
+  def enter: Enter[F, N, D, PN, PD]
+
+}
+
+sealed abstract class Enter[+F[_], +N, +D, +PN, +PD] {
+
+  def append[N0](name: String): Selection[F, N0, D, PN, PD]
 
 }
 
