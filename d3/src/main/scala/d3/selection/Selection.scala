@@ -4,6 +4,8 @@ import org.scalajs.dom
 import scalajs.js
 import cats.syntax.all._
 
+import scalajs.js.JSConverters._
+
 import Selection._
 import cats.effect.kernel.Async
 
@@ -75,22 +77,84 @@ object Selection {
             val parents = List(dom.document.documentElement.asInstanceOf[PN0])
             Terminal(groups, parents)
           }
-        case Continue(t @ Terminal(groups, parents), step) =>
+        case Continue(t @ Terminal(groups, parents, _, _), step) =>
           println(
             s"groups: ${groups.map(group => group.mkString(", ")).mkString("\n")}"
           )
           step match {
             case Data(data) =>
+              val update = Array.fill(groups.length)(Array.empty[Any])
+              val enter =
+                Array.fill(groups.length)(Array.empty[EnterNode[Any, Any]])
+              val exit = Array.fill(groups.length)(Array.empty[Any])
               groups.traverse_ {
                 _.traverse_ { elm =>
-                  F.delay(
+                  F.delay {
+
+                    (groups.zip(parents).zipWithIndex).map {
+                      case ((group, parent), j) =>
+                        val groupLength = group.length
+                        val dataLength = data.length
+                        val enterGroup =
+                          new Array[EnterNode[Any, Any]](dataLength)
+                        val updateGroup = new Array[Any](dataLength)
+                        val exitGroup = new Array[Any](groupLength)
+                        val nodes = group.toArray
+                        val dataArr = data.toArray
+
+                        var i = 0
+                        while (i < dataLength) {
+                          if (nodes(i) != null) {
+                            // nodes(i).asInstanceOf[js.Dynamic].`__data__` = dataArr(i)
+                            val datum = dataArr(i).asInstanceOf[js.Any]
+                            val node = nodes(i)
+                            node.asInstanceOf[js.Dynamic].`__data__` = datum
+                            updateGroup(i) = nodes(i)
+                          } else {
+                            enterGroup(i) = new EnterNode(parent, data(i), null)
+                          }
+                          i += 1
+                        }
+
+                        while (i < groupLength) {
+                          if (nodes(i) != null) {
+                            exitGroup(i) = nodes(i)
+                          }
+                          i += 1
+                        }
+
+                        var i0 = 0
+                        var i1 = 0
+                        while (i0 < dataLength) {
+                          if (enterGroup(i0) != null) {
+                            if (i0 >= i1) i1 = i0 + 1
+                            while (updateGroup(i1) != null && i1 < dataLength) {
+                              enterGroup(i0)._next = updateGroup(i1)
+                            }
+                          }
+                          i0 += 1
+                        }
+
+                        update(i) = updateGroup
+                        enter(i) = enterGroup
+                        exit(i) = exitGroup
+
+                    }
+
                     () // TODO
-                  )
+                  }
                 }
               } *> F.pure(
                 Terminal(
-                  groups.asInstanceOf[List[List[N0]]],
-                  parents.asInstanceOf[List[PN0]]
+                  update.map(_.toList).toList.asInstanceOf[List[List[N0]]],
+                  // groups.asInstanceOf[List[List[N0]]],
+                  parents.asInstanceOf[List[PN0]],
+                  exit = Some(
+                    Terminal(
+                      exit.map(_.toList).toList.asInstanceOf[List[List[N0]]],
+                      parents.asInstanceOf[List[PN0]]
+                    )
+                  )
                 )
               )
 
@@ -206,8 +270,8 @@ object Selection {
 
   def select[F[_], N, D](
       selector: String
-  ): Selection[F, N, D, dom.HTMLElement, Nothing] =
-    Select[F, N, D, dom.HTMLElement, Nothing](selector)
+  ): Selection[F, N, D, dom.HTMLElement, Unit] =
+    Select[F, N, D, dom.HTMLElement, Unit](selector)
 
   private sealed abstract class Action[+F[_], +N, +D, +PN, +PD]
       extends Selection[F, N, D, PN, PD]
@@ -245,12 +309,16 @@ object Selection {
 
   private case class Terminal[+F[_], N, D, PN, PD](
       groups: List[List[N]],
-      parents: List[PN]
+      parents: List[PN],
+      enter: Option[Enter[F, N, D, PN, PD]] = None,
+      exit: Option[Selection[F, N, D, PN, PD]] = None
   ) extends Selection[F, N, D, PN, PD]
 
   private case class Continue[+F[_], N, D, PN, PD, N0, D0, PN0, PD0](
       current: Selection[F, N, D, PN, PD],
       step: Action[F, N, D, PN, PD]
   ) extends Selection[F, N0, D0, PN0, PD0]
+
+  private class EnterNode[D, PN](val parent: PN, val data: D, var _next: Any)
 
 }
