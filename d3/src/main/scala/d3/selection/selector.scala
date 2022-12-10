@@ -1,6 +1,3 @@
 package d3
 
-object selector {
-
-
-}
+object selector {}

@@ -1,4 +1,1 @@
-package object d3 {
-
-
-}
+package object d3 {}

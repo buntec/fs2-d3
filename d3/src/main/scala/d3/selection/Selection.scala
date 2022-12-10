@@ -87,67 +87,59 @@ object Selection {
               val enter =
                 Array.fill(groups.length)(Array.empty[EnterNode[Any, Any]])
               val exit = Array.fill(groups.length)(Array.empty[Any])
-              groups.traverse_ {
-                _.traverse_ { elm =>
-                  F.delay {
+              F.delay {
+                (groups.zip(parents).zipWithIndex).map {
+                  case ((group, parent), j) =>
+                    val groupLength = group.length
+                    val dataLength = data.length
+                    val enterGroup =
+                      new Array[EnterNode[Any, Any]](dataLength)
+                    val updateGroup = new Array[Any](dataLength)
+                    val exitGroup = new Array[Any](groupLength)
+                    val nodes = group.toArray
+                    val dataArr = data.toArray
 
-                    (groups.zip(parents).zipWithIndex).map {
-                      case ((group, parent), j) =>
-                        val groupLength = group.length
-                        val dataLength = data.length
-                        val enterGroup =
-                          new Array[EnterNode[Any, Any]](dataLength)
-                        val updateGroup = new Array[Any](dataLength)
-                        val exitGroup = new Array[Any](groupLength)
-                        val nodes = group.toArray
-                        val dataArr = data.toArray
-
-                        var i = 0
-                        while (i < dataLength) {
-                          if (nodes(i) != null) {
-                            // nodes(i).asInstanceOf[js.Dynamic].`__data__` = dataArr(i)
-                            val datum = dataArr(i).asInstanceOf[js.Any]
-                            val node = nodes(i)
-                            node.asInstanceOf[js.Dynamic].`__data__` = datum
-                            updateGroup(i) = nodes(i)
-                          } else {
-                            enterGroup(i) = new EnterNode(parent, data(i), null)
-                          }
-                          i += 1
-                        }
-
-                        while (i < groupLength) {
-                          if (nodes(i) != null) {
-                            exitGroup(i) = nodes(i)
-                          }
-                          i += 1
-                        }
-
-                        var i0 = 0
-                        var i1 = 0
-                        while (i0 < dataLength) {
-                          if (enterGroup(i0) != null) {
-                            if (i0 >= i1) i1 = i0 + 1
-                            while (updateGroup(i1) != null && i1 < dataLength) {
-                              enterGroup(i0)._next = updateGroup(i1)
-                            }
-                          }
-                          i0 += 1
-                        }
-
-                        update(i) = updateGroup
-                        enter(i) = enterGroup
-                        exit(i) = exitGroup
-
+                    var i = 0
+                    while (i < dataLength) {
+                      if (nodes(i) != null) {
+                        // nodes(i).asInstanceOf[js.Dynamic].`__data__` = dataArr(i)
+                        val datum = dataArr(i).asInstanceOf[js.Any]
+                        val node = nodes(i)
+                        node.asInstanceOf[js.Dynamic].`__data__` = datum
+                        updateGroup(i) = nodes(i)
+                      } else {
+                        enterGroup(i) = new EnterNode(parent, data(i), null)
+                      }
+                      i += 1
                     }
 
-                    () // TODO
-                  }
+                    while (i < groupLength) {
+                      if (nodes(i) != null) {
+                        exitGroup(i) = nodes(i)
+                      }
+                      i += 1
+                    }
+
+                    var i0 = 0
+                    var i1 = 0
+                    while (i0 < dataLength) {
+                      if (enterGroup(i0) != null) {
+                        if (i0 >= i1) i1 = i0 + 1
+                        while (updateGroup(i1) == null && i1 + 1 < dataLength) {
+                          i1 += 1
+                        }
+                        enterGroup(i0)._next = updateGroup(i1)
+                      }
+                      i0 += 1
+                    }
+
+                    update(j) = updateGroup
+                    enter(j) = enterGroup
+                    exit(j) = exitGroup
                 }
               } *> F.pure(
                 Terminal(
                   update.map(_.toList).toList.asInstanceOf[List[List[N0]]],
-                  // groups.asInstanceOf[List[List[N0]]],
                   parents.asInstanceOf[List[PN0]],
                   exit = Some(
                     Terminal(
