@@ -41,12 +41,6 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
 
 }
 
-sealed abstract class Enter[+F[_], +N, +D, +PN, +PD] {
-
-  def append[N0](name: String): Selection[F, N0, D, PN, PD]
-
-}
-
 object Selection {
 
   implicit class SelectionOps[F[_], N, D, PN, PD](
@@ -55,6 +49,11 @@ object Selection {
 
     def compile(implicit F: Async[F]) = Selection.compile(sel)
 
+  }
+
+  sealed abstract class Enter[+F[_], +N, +D, +PN, +PD] {
+    def append[N0](name: String): Selection[F, N0, D, PN, PD] =
+      Selection.EnterAppend(this, name)
   }
 
   def compile[F[_], N, D, PN, PD](
@@ -309,6 +308,11 @@ object Selection {
   private case class Continue[+F[_], N, D, PN, PD, N0, D0, PN0, PD0](
       current: Selection[F, N, D, PN, PD],
       step: Action[F, N, D, PN, PD]
+  ) extends Selection[F, N0, D0, PN0, PD0]
+
+  private case class EnterAppend[+F[_], N, D, PN, PD, N0, D0, PN0, PD0](
+      enter: Enter[F, N, D, PN, PD],
+      name: String
   ) extends Selection[F, N0, D0, PN0, PD0]
 
   private class EnterNode[D, PN](val parent: PN, val data: D, var _next: Any)
