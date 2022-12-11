@@ -2,6 +2,7 @@ package d3.selection.examples
 
 import cats.effect.kernel.Async
 
+import cats.syntax.all._
 import scalajs.js
 
 import org.scalajs.dom

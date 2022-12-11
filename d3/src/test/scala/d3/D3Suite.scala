@@ -45,15 +45,6 @@ import d3.selection
 
 class D3Suite extends munit.FunSuite {
 
-  test("basics") {
-
-    val foo = selection.Selection
-      .select[F, dom.HTMLDivElement, Unit]("div")
-      .select[dom.HTMLParagraphElement]("p")
-      .attr("fill", "green")
-
-  }
-
   test("bar") {
     assertEquals(1.0, 1.0)
   }
