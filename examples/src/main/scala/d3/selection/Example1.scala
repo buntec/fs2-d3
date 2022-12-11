@@ -18,9 +18,13 @@ class Example1[F[_]](implicit F: Async[F]) {
 
   }
 
+  case class Foo(s: String, i: Int)
+
   def run: F[Unit] = {
 
-    val sel =
+    val data = List(Foo("foo", 1), Foo("bar", 2))
+
+    val sel1 =
       Selection
         .select[F, dom.HTMLDivElement, Unit]("#app")
         .append("span")
@@ -28,7 +32,13 @@ class Example1[F[_]](implicit F: Async[F]) {
         .attr("foo", "bar")
         .text("Hello, World!")
 
-    sel.compile
+    val sel2 =
+      Selection
+        .select[F, dom.HTMLDivElement, Unit]("#app")
+        .data(data)
+        .join(enter => enter.append("span"))
+
+    sel2.compile
 
   }
 

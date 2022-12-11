@@ -41,7 +41,8 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
 
   def join[N0, F1[x] >: F[x], N1 >: N, D1 >: D, PN1 >: PN, PD1 >: PD](
       onEnter: Enter[F, N, D, PN, PD] => Selection[F1, N0, D1, PN1, PD1],
-      onUpdate: Selection[F, N, D, PN, PD] => Selection[F1, N1, D1, PN1, PD1],
+      onUpdate: Selection[F, N, D, PN, PD] => Selection[F1, N1, D1, PN1, PD1] =
+        (sel: Selection[F, N, D, PN, PD]) => sel,
       onExit: Selection[F, N, D, PN, PD] => Selection[F1, N1, D1, PN1, PD1] =
         (sel: Selection[F, N, D, PN, PD]) => sel.remove
   ): Selection[F, N, D, PN, PD] =
@@ -210,7 +211,13 @@ object Selection {
                         merges(j) = groups0Arr(j).toArray
                         j += 1
                       }
-                      Terminal(merges.asInstanceOf[List[List[N0]]], parents)
+                      Terminal(
+                        merges
+                          .map(_.toList)
+                          .toList
+                          .asInstanceOf[List[List[N0]]],
+                        parents
+                      )
                         .asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
                     }.flatMap { terminal =>
                       go(Continue(terminal, Order()))
@@ -238,7 +245,7 @@ object Selection {
 
                     var i = 0
                     while (i < dataLength) {
-                      if (nodes(i) != null) {
+                      if (i < groupLength && nodes(i) != null) {
                         // nodes(i).asInstanceOf[js.Dynamic].`__data__` = dataArr(i)
                         val datum = dataArr(i).asInstanceOf[js.Any]
                         val node = nodes(i)
@@ -262,10 +269,15 @@ object Selection {
                     while (i0 < dataLength) {
                       if (enterGroup(i0) != null) {
                         if (i0 >= i1) i1 = i0 + 1
-                        while (updateGroup(i1) == null && i1 + 1 < dataLength) {
+                        while (
+                          i1 < dataLength && updateGroup(
+                            i1
+                          ) == null && i1 + 1 < dataLength
+                        ) {
                           i1 += 1
                         }
-                        enterGroup(i0)._next = updateGroup(i1)
+                        enterGroup(i0)._next =
+                          if (i1 < dataLength) updateGroup(i1) else null
                       }
                       i0 += 1
                     }
@@ -417,7 +429,16 @@ object Selection {
               Terminal(groups.asInstanceOf[List[List[N0]]], parents)
             }
         }
-        case _ => throw new IllegalStateException("boom")
+        case Terminal(groups, parents, enter, exit) =>
+          F.pure(
+            Terminal(
+              groups,
+              parents,
+              enter.asInstanceOf[Option[List[List[EnterNode[D0, PN0]]]]],
+              exit
+            )
+          )
+        case sel => throw new IllegalStateException(s"Unexpected type: $sel")
       }
     }
 
