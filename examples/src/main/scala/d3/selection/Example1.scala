@@ -22,7 +22,7 @@ class Example1[F[_]](implicit F: Async[F]) {
 
   def run: F[Unit] = {
 
-    val data = List(Foo("foo", 1), Foo("bar", 2), Foo("qux", 3))
+    val data = List(Foo("foo", 1), Foo("bar", 2), Foo("qux", 3), Foo("baz", 4))
 
     val sel1 =
       Selection

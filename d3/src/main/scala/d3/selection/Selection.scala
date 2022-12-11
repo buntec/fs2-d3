@@ -445,7 +445,9 @@ object Selection {
             go(Continue(s, step))
           }
         case EnterAppend(Enter.Nodes(nodes), name) => {
-          println("EnterAppend")
+          println(
+            s"EnterAppend: nodes = ${nodes.map(_.mkString(", ")).mkString("\n")}"
+          )
           val parents = nodes
             .map(nodes => nodes.find(_ != null).map(_.parent).getOrElse(null))
             .asInstanceOf[List[PN0]]
@@ -455,6 +457,8 @@ object Selection {
                 F.delay {
                   if (eNode != null) {
                     val child = dom.document.createElement(name)
+                    val next = eNode._next.asInstanceOf[dom.Node]
+                    println(s"next=$next")
                     eNode.parent
                       .asInstanceOf[dom.Node]
                       .insertBefore(child, eNode._next.asInstanceOf[dom.Node])
