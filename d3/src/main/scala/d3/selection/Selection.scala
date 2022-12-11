@@ -42,12 +42,16 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   def join[N0, F1[x] >: F[x], N1 >: N, D1 >: D, PN1 >: PN, PD1 >: PD](
       onEnter: Enter[F, N, D, PN, PD] => Selection[F1, N0, D1, PN1, PD1],
       onUpdate: Selection[F, N, D, PN, PD] => Selection[F1, N1, D1, PN1, PD1],
-      onExit: Selection[F, N, D, PN, PD] => Selection[F1, N1, D1, PN1, PD1]
+      onExit: Selection[F, N, D, PN, PD] => Selection[F1, N1, D1, PN1, PD1] =
+        (sel: Selection[F, N, D, PN, PD]) => sel.remove
   ): Selection[F, N, D, PN, PD] =
     Continue(this, Join(onEnter, onUpdate, onExit))
 
   def order: Selection[F, N, D, PN, PD] =
     Continue(this, Order())
+
+  def remove: Selection[F, N, D, PN, PD] =
+    Continue(this, Remove())
 
 }
 
@@ -57,7 +61,7 @@ object Selection {
       private val sel: Selection[F, N, D, PN, PD]
   ) extends AnyVal {
 
-    def compile(implicit F: Async[F]) = Selection.compile(sel)
+    def compile(implicit F: Async[F]): F[Unit] = Selection.compile(sel)
 
   }
 
@@ -105,6 +109,24 @@ object Selection {
             s"groups: ${groups.map(group => group.mkString(", ")).mkString("\n")}"
           )
           step match {
+            case Remove() =>
+              F.defer(
+                go(
+                  Continue(
+                    t,
+                    Each { (n: N, _: D, _: Int, _: List[N]) =>
+                      F.delay {
+                        val node = n.asInstanceOf[dom.Node]
+                        val parent = node.parentNode
+                        if (parent != null) {
+                          parent.removeChild(node)
+                        }
+                        ()
+                      }
+                    }
+                  )
+                )
+              )
 
             case Order() => {
               F.delay {
@@ -444,6 +466,9 @@ object Selection {
   ) extends Action[F, N, D, PN, PD]
 
   private case class Order[F[_], N, D, PN, PD]() extends Action[F, N, D, PN, PD]
+
+  private case class Remove[F[_], N, D, PN, PD]()
+      extends Action[F, N, D, PN, PD]
 
   private case class SelectAll[+F[_], N, D, PN, PD](selector: String)
       extends Action[F, N, D, PN, PD]
