@@ -89,17 +89,21 @@ object Selection {
       selection: Selection[F, N, D, PN, PD]
   )(implicit F: Async[F]): F[Unit] = {
 
+    def log(msg: String): F[Unit] = F.delay(println(msg))
+
     def go[N0, D0, PN0, PD0](
         s: Selection[F, N0, D0, PN0, PD0]
     ): F[Terminal[F, N0, D0, PN0, PD0]] = {
       s match {
         case Select(selector) =>
+          println("Select")
           F.delay(dom.document.querySelector(selector)).map { elm =>
             val groups = List(List(elm.asInstanceOf[N0]))
             val parents = List(dom.document.documentElement.asInstanceOf[PN0])
             Terminal(groups, parents)
           }
         case SelectAll(selector) =>
+          println("SelectAll")
           F.delay(dom.document.querySelectorAll(selector)).map { nodes =>
             val groups = List(nodes.toList.asInstanceOf[List[N0]])
             val parents = List(dom.document.documentElement.asInstanceOf[PN0])
@@ -107,10 +111,17 @@ object Selection {
           }
         case Continue(t @ Terminal(groups, parents, enter, exit), step) =>
           println(
-            s"groups: ${groups.map(group => group.mkString(", ")).mkString("\n")}"
+            s"""Continue=(Terminal, step)
+            |groups(${groups.length}/${groups.map(_.length)}}): ${groups
+              .map(group => group.mkString(", "))
+              .mkString("\n")}
+            |parents(${parents.length}): ${parents.mkString(
+              ", "
+            )}""".stripMargin
           )
           step match {
             case Remove() =>
+              println("Step=Remove")
               F.defer(
                 go(
                   Continue(
@@ -130,23 +141,28 @@ object Selection {
               )
 
             case Order() => {
+              println("Step=Order")
               F.delay {
-                groups.foreach { group =>
-                  group.zip(group.tail).reverse.foreach { case (node, next) =>
-                    if (
-                      next != null && ((node
-                        .asInstanceOf[dom.Node]
-                        .compareDocumentPosition(
-                          next.asInstanceOf[dom.Node]
-                        ) & dom.Node.DOCUMENT_POSITION_FOLLOWING) != 0)
-                    )
-                      next
-                        .asInstanceOf[dom.Node]
-                        .insertBefore(
-                          node.asInstanceOf[dom.Node],
-                          next.asInstanceOf[dom.Node]
-                        )
-                  }
+                groups.foreach {
+                  case group @ (_ :: tail) =>
+                    group.zip(tail).reverse.foreach { case (node, next) =>
+                      if (
+                        (next != null) && (node != null) && ((node
+                          .asInstanceOf[dom.Node]
+                          .compareDocumentPosition(
+                            next.asInstanceOf[dom.Node]
+                          ) ^ dom.Node.DOCUMENT_POSITION_FOLLOWING) != 0)
+                      ) {
+                        next
+                          .asInstanceOf[dom.Node]
+                          .parentNode
+                          .insertBefore(
+                            node.asInstanceOf[dom.Node],
+                            next.asInstanceOf[dom.Node]
+                          )
+                      }
+                    }
+                  case _ => ()
                 }
                 Terminal(
                   groups.asInstanceOf[List[List[N0]]],
@@ -156,6 +172,7 @@ object Selection {
             }
 
             case Join(onEnter, onUpdate, onExit) => {
+              println("Step=Join")
 
               val enterSection = Enter.nodes(enter.get)
 
@@ -175,58 +192,59 @@ object Selection {
                 )
                 .compile
 
-              F.defer((go(s1), go(s2), doExit).tupled)
-                .flatMap {
-                  case (
-                        Terminal(groups0, parents, _, _),
-                        Terminal(groups1, _, _, _),
-                        _
-                      ) =>
-                    F.delay {
-                      val groups0Arr = groups0.toArray
-                      val groups1Arr = groups1.toArray
-                      val m0 = groups0Arr.length
-                      val m1 = groups1Arr.length
-                      val m = math.min(m0, m1)
-                      val merges = new Array[Array[Any]](m0)
-                      var j = 0
-                      while (j < m) {
-                        val group0 = groups0Arr(j)
-                        val group1 = groups1Arr(j)
-                        val n = group0.length
-                        merges(j) = new Array[Any](n)
-                        val merge = merges(j)
-                        var i = 0
-                        while (i < n) {
-                          if (group0(i) != null) {
-                            merge(i) = group0(i)
-                          } else {
-                            merge(i) = group1(i)
-                          }
-                          i += 1
+              F.defer((go(s1), go(s2), doExit).tupled).flatMap {
+                case (
+                      Terminal(groups0, parents, _, _),
+                      Terminal(groups1, _, _, _),
+                      _
+                    ) =>
+                  F.delay {
+                    val groups0Arr = groups0.toArray
+                    val groups1Arr = groups1.toArray
+                    val m0 = groups0Arr.length
+                    val m1 = groups1Arr.length
+                    val m = math.min(m0, m1)
+                    val merges = new Array[Array[Any]](m0)
+                    var j = 0
+                    while (j < m) {
+                      val group0 = groups0Arr(j)
+                      val group1 = groups1Arr(j)
+                      val n = group0.length
+                      merges(j) = new Array[Any](n)
+                      val merge = merges(j)
+                      var i = 0
+                      while (i < n) {
+                        if (group0(i) != null) {
+                          merge(i) = group0(i)
+                        } else {
+                          merge(i) = group1(i)
                         }
-                        j += 1
+                        i += 1
                       }
-                      while (j < m0) {
-                        merges(j) = groups0Arr(j).toArray
-                        j += 1
-                      }
-                      Terminal(
-                        merges
-                          .map(_.toList)
-                          .toList
-                          .asInstanceOf[List[List[N0]]],
-                        parents
-                      )
-                        .asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
-                    }.flatMap { terminal =>
-                      go(Continue(terminal, Order()))
+                      j += 1
                     }
-                }
+                    while (j < m0) {
+                      merges(j) = groups0Arr(j).toArray
+                      j += 1
+                    }
+                    Terminal(
+                      merges
+                        .map(_.toList)
+                        .toList
+                        .asInstanceOf[List[List[N0]]],
+                      parents
+                    )
+                      .asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
+                  }.flatMap { terminal =>
+                    // go(terminal)
+                    go(Continue(terminal, Order()))
+                  }
+              }
 
             }
 
             case Data(data) =>
+              println("Step=Data")
               val update = Array.fill(groups.length)(Array.empty[Any])
               val enter =
                 Array.fill(groups.length)(Array.empty[EnterNode[Any, Any]])
@@ -277,16 +295,19 @@ object Selection {
                           i1 += 1
                         }
                         enterGroup(i0)._next =
-                          if (i1 < dataLength) updateGroup(i1) else null
+                          if (i1 <= dataLength) updateGroup(i1 - 1) else null
                       }
                       i0 += 1
                     }
+
+                    println(s"updateGroup=${updateGroup.mkString(", ")}")
 
                     update(j) = updateGroup
                     enter(j) = enterGroup
                     exit(j) = exitGroup
                 }
-              } *> F.pure(
+              } *> F.delay {
+                println(s"update=${update}")
                 Terminal(
                   update.map(_.toList).toList.asInstanceOf[List[List[N0]]],
                   parents.asInstanceOf[List[PN0]],
@@ -296,12 +317,14 @@ object Selection {
                       .toList
                       .asInstanceOf[List[List[EnterNode[D0, PN0]]]]
                   ),
-                  exit =
-                    Some(exit.map(_.toList).toList.asInstanceOf[List[List[N0]]])
+                  exit = Some(
+                    exit.map(_.toList).toList.asInstanceOf[List[List[N0]]]
+                  )
                 )
-              )
+              }
 
             case Text(value) =>
+              println("Step=Text")
               F.defer(
                 go(
                   Continue(
@@ -315,6 +338,7 @@ object Selection {
                 )
               )
             case Append(tpe) =>
+              println("Step=Append")
               F.defer(
                 go(
                   Continue(
@@ -332,6 +356,7 @@ object Selection {
               )
 
             case SetAttr(name, value) => {
+              println("Step=SetAttr")
               groups.traverse_ {
                 _.traverse_ { elm =>
                   F.delay(
@@ -348,6 +373,7 @@ object Selection {
             }
 
             case Select(selector) => {
+              println("Step=Select")
               val newGroups = groups.map { group =>
                 group.map(
                   _.asInstanceOf[dom.Element]
@@ -359,13 +385,18 @@ object Selection {
             }
 
             case Each(fn) => {
+              println("Step=Each")
               groups
                 .traverse_ { group =>
                   group.zipWithIndex.traverse_ { case (node, i) =>
-                    val data = node.asInstanceOf[js.Dynamic].`__data__`
-                    val fn0 =
-                      fn.asInstanceOf[(Any, Any, Int, List[Any]) => F[Unit]]
-                    fn0(node, data, i, group)
+                    if (node != null) {
+                      val data = node.asInstanceOf[js.Dynamic].`__data__`
+                      val fn0 =
+                        fn.asInstanceOf[(Any, Any, Int, List[Any]) => F[Unit]]
+                      fn0(node, data, i, group)
+                    } else {
+                      F.unit
+                    }
                   }
                 }
                 .map(_ =>
@@ -377,16 +408,21 @@ object Selection {
             }
 
             case SelectFn(selector) => {
+              println("Step=SelectFn")
               val newGroups = groups.traverse { group =>
                 group.zipWithIndex.traverse { case (node, i) =>
-                  val data = node.asInstanceOf[js.Dynamic].`__data__`
-                  val sel0 =
-                    selector.asInstanceOf[(Any, Any, Int, List[Any]) => F[N0]]
-                  val newNode = sel0(node, data, i, group)
-                  newNode.flatMap { n0 =>
-                    F.delay(newNode.asInstanceOf[js.Dynamic].`__data__` =
-                      data
-                    ) *> F.pure(n0)
+                  if (node != null) {
+                    val data = node.asInstanceOf[js.Dynamic].`__data__`
+                    val sel0 =
+                      selector.asInstanceOf[(Any, Any, Int, List[Any]) => F[N0]]
+                    val newNode = sel0(node, data, i, group)
+                    newNode.flatMap { n0 =>
+                      F.delay(n0.asInstanceOf[js.Dynamic].`__data__` =
+                        data
+                      ) *> F.pure(n0)
+                    }
+                  } else {
+                    F.pure(null.asInstanceOf[N0])
                   }
                 }
               }
@@ -404,10 +440,12 @@ object Selection {
 
           }
         case Continue(current, step) =>
+          println("Continue")
           go(current).flatMap { s =>
             go(Continue(s, step))
           }
         case EnterAppend(Enter.Nodes(nodes), name) => {
+          println("EnterAppend")
           val parents = nodes
             .map(nodes => nodes.find(_ != null).map(_.parent).getOrElse(null))
             .asInstanceOf[List[PN0]]
@@ -415,13 +453,17 @@ object Selection {
             .traverse { nodes =>
               nodes.traverse { eNode =>
                 F.delay {
-                  val child = dom.document.createElement(name)
-                  eNode.parent
-                    .asInstanceOf[dom.Element]
-                    .insertBefore(child, eNode._next.asInstanceOf[dom.Node])
-                  child.asInstanceOf[js.Dynamic].`__data__` =
-                    eNode.data.asInstanceOf[js.Any]
-                  child
+                  if (eNode != null) {
+                    val child = dom.document.createElement(name)
+                    eNode.parent
+                      .asInstanceOf[dom.Node]
+                      .insertBefore(child, eNode._next.asInstanceOf[dom.Node])
+                    child.asInstanceOf[js.Dynamic].`__data__` =
+                      eNode.data.asInstanceOf[js.Any]
+                    child
+                  } else {
+                    null
+                  }
                 }
               }
             }
@@ -430,6 +472,7 @@ object Selection {
             }
         }
         case Terminal(groups, parents, enter, exit) =>
+          println("Terminal")
           F.pure(
             Terminal(
               groups,

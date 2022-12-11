@@ -22,7 +22,7 @@ class Example1[F[_]](implicit F: Async[F]) {
 
   def run: F[Unit] = {
 
-    val data = List(Foo("foo", 1), Foo("bar", 2))
+    val data = List(Foo("foo", 1), Foo("bar", 2), Foo("qux", 3))
 
     val sel1 =
       Selection
@@ -35,8 +35,9 @@ class Example1[F[_]](implicit F: Async[F]) {
     val sel2 =
       Selection
         .select[F, dom.HTMLDivElement, Unit]("#app")
+        .append("div")
         .data(data)
-        .join(enter => enter.append("span"))
+        .join(enter => enter.append("span"), update => update.append("p"))
 
     sel2.compile
 
