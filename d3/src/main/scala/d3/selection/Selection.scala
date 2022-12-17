@@ -27,6 +27,9 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   def text(value: String): Selection[F, N, D, PN, PD] =
     Continue(this, Text(value))
 
+  def text(value: (N, D, Int, List[N]) => String): Selection[F, N, D, PN, PD] =
+    Continue(this, TextFn(value))
+
   def selectAll[N0, D0](selector: String): Selection[F, N0, D0, N, D] =
     Continue(this, SelectAll(selector))
 
@@ -39,7 +42,7 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   def data[D0](data: List[D0]): Selection[F, N, D0, PN, PD] =
     Continue(this, Data(data))
 
-  def join[N0, F1[x] >: F[x], N1 >: N, D1 >: D, PN1 >: PN, PD1 >: PD](
+  def join[F1[x] >: F[x], N0, N1 >: N, D1 >: D, PN1 >: PN, PD1 >: PD](
       onEnter: Enter[F, N, D, PN, PD] => Selection[F1, N0, D1, PN1, PD1],
       onUpdate: Selection[F, N, D, PN, PD] => Selection[F1, N1, D1, PN1, PD1] =
         (sel: Selection[F, N, D, PN, PD]) => sel,
@@ -337,6 +340,23 @@ object Selection {
                   )
                 )
               )
+            case TextFn(value) => {
+              println("Step=TextFn")
+              val fn = value.asInstanceOf[(Any, Any, Any, Any) => String]
+              F.defer(
+                go(
+                  Continue(
+                    t,
+                    Each { (n: N, d: D, i: Int, group: List[N]) =>
+                      F.delay(
+                        n.asInstanceOf[dom.HTMLElement].textContent =
+                          fn(n, d, i, group)
+                      )
+                    }
+                  )
+                )
+              )
+            }
             case Append(tpe) =>
               println("Step=Append")
               F.defer(
@@ -434,7 +454,39 @@ object Selection {
               }
             }
 
-            case SelectAll(_) => throw new NotImplementedError("boom")
+            case SelectAll(sel) => {
+              println("selectAll")
+              F.delay {
+                val (newGroups, newParents) =
+                  groups.foldLeft((List.empty[List[Any]], List.empty[Any])) {
+                    case ((sg, ps), group) =>
+                      val (a, b) =
+                        group.foldLeft(
+                          (List.empty[List[Any]], List.empty[Any])
+                        ) { case ((sg, ps), node) =>
+                          if (node != null) {
+                            (
+                              node
+                                .asInstanceOf[dom.Element]
+                                .querySelectorAll(sel)
+                                .toList
+                                .asInstanceOf[List[Any]] :: sg,
+                              node :: ps
+                            )
+                          } else {
+                            (sg, ps)
+                          }
+                        }
+
+                      (a ++ sg.reverse, b ++ ps.reverse)
+                  }
+                Terminal(
+                  newGroups.asInstanceOf[List[List[N0]]],
+                  newParents.asInstanceOf[List[PN0]]
+                )
+              }
+
+            }
 
             case SelectAllFn(_) => throw new NotImplementedError("boom")
 
@@ -509,6 +561,10 @@ object Selection {
 
   private case class Text[+F[_], N, D, PN, PD](value: String)
       extends Action[F, N, D, PN, PD]
+
+  private case class TextFn[+F[_], N, D, PN, PD](
+      fn: (N, D, Int, List[N]) => String
+  ) extends Action[F, N, D, PN, PD]
 
   private case class Each[F[_], N, D, PN, PD](
       fn: (N, D, Int, List[N]) => F[Unit]

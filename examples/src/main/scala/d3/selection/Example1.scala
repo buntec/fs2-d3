@@ -2,11 +2,15 @@ package d3.selection.examples
 
 import cats.effect.kernel.Async
 
+import cats.effect.implicits._
 import cats.syntax.all._
 import scalajs.js
 
 import org.scalajs.dom
 import d3.selection.Selection
+import cats.effect.std.Random
+import fs2.Stream
+import concurrent.duration._
 
 class Example1[F[_]](implicit F: Async[F]) {
 
@@ -32,14 +36,51 @@ class Example1[F[_]](implicit F: Async[F]) {
         .attr("foo", "bar")
         .text("Hello, World!")
 
-    val sel2 =
-      Selection
-        .select[F, dom.HTMLDivElement, Unit]("#app")
-        .append("div")
-        .data(data)
-        .join(enter => enter.append("span"), update => update.append("p"))
+//d3.select("#app")
+//  .append("div")
+//  .selectAll("span")
+//  .data([1, 2, 3, 4, 5, 6])
+//  .join(
+//    enter => enter.append("span").text(i => `foo: ${i}`),
+//    update => update,
+//    exit => exit.remove()
+//  )
+//
+//
 
-    sel2.compile
+    Random.scalaUtilRandom[F].flatMap { rng =>
+      val randomData2 = rng
+        .nextIntBounded(5)
+        .flatMap { i =>
+          rng.nextIntBounded(100).replicateA(i)
+        }
+        .map(_.map { i => Foo(s"foo-$i", i) })
+
+      val randomData = rng.nextInt.replicateA(3).map { ints =>
+        ints.map { i => Foo(s"foo-$i", i) }
+      }
+
+      Stream
+        .fixedDelay(1.second)
+        .evalMap(_ => randomData2)
+        .evalMap { data =>
+          val sel2 =
+            Selection
+              .select[F, dom.HTMLDivElement, Unit]("#app")
+              .selectAll[dom.Element, Unit]("span")
+              .data[Foo](data)
+              .join[F, dom.Element, dom.Element, Foo, dom.Element, Unit](
+                enter =>
+                  enter
+                    .append[dom.Element]("span")
+                    .text((n, d, i, g) => s"foo: $d")
+              )
+
+          sel2.compile
+        }
+        .compile
+        .drain
+    }
 
   }
 
