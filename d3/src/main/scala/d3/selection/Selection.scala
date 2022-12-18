@@ -4,7 +4,7 @@ import org.scalajs.dom
 import scalajs.js
 import cats.syntax.all._
 
-import scalajs.js.JSConverters._
+// import scalajs.js.JSConverters._
 
 import Selection._
 import cats.effect.kernel.Async
@@ -23,6 +23,11 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
       fn: (N, D, Int, List[N]) => F1[Unit]
   ): Selection[F1, N, D, PN, PD] =
     Continue(this, Each(fn))
+
+  def call[F1[x] >: F[x]](
+      fn: Selection[F, N, D, PN, PD] => F1[Unit]
+  ): Selection[F1, N, D, PN, PD] =
+    Continue(this, Call(fn))
 
   def text(value: String): Selection[F, N, D, PN, PD] =
     Continue(this, TextFn((_: N, _: D, _: Int, _: List[N]) => value))
@@ -67,6 +72,9 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   def remove: Selection[F, N, D, PN, PD] =
     Continue(this, Remove())
 
+  def transition: Transition[F, N, D, PN, PD] =
+    Transition.FromSelection(this)
+
 }
 
 object Selection {
@@ -90,10 +98,8 @@ object Selection {
   }
 
   sealed abstract class Enter[+F[_], +N, +D, +PN, +PD] {
-
     def append[N0](name: String): Selection[F, N0, D, PN, PD] =
-      Selection.EnterAppend(this, name)
-
+      EnterAppend(this, name)
   }
 
   object Enter {
@@ -105,6 +111,42 @@ object Selection {
     def nodes[F[_], N, D, PN, PD](
         nodes: List[List[EnterNode[D, PN]]]
     ): Enter[F, N, D, PN, PD] = Nodes(nodes)
+
+  }
+
+  sealed abstract class Transition[+F[_], +N, +D, +PN, +PD] {
+
+    def attr(name: String, value: String): Transition[F, N, D, PN, PD] =
+      Transition.Continue(this, Transition.Attr(name, value))
+
+    def transition: Transition[F, N, D, PN, PD] =
+      Transition.Continue(this, Transition.NewTransition())
+
+  }
+
+  object Transition {
+
+    case class FromSelection[F[_], N, D, PN, PD](
+        selection: Selection[F, N, D, PN, PD]
+    ) extends Transition[F, N, D, PN, PD]
+
+    private case class Done[+F[_], N, D, PN, PD](
+        groups: List[List[N]],
+        parents: List[PN]
+    ) extends Transition[F, N, D, PN, PD]
+
+    private sealed trait Action[+F[_], N, D, PN, PD]
+
+    private case class Attr[+F[_], N, D, PN, PD](key: String, value: String)
+        extends Action[F, N, D, PN, PD]
+
+    private case class NewTransition[+F[_], N, D, PN, PD]()
+        extends Action[F, N, D, PN, PD]
+
+    private case class Continue[+F[_], N, D, PN, PD](
+        current: Transition[F, N, D, PN, PD],
+        step: Action[F, N, D, PN, PD]
+    ) extends Transition[F, N, D, PN, PD]
 
   }
 
@@ -497,6 +539,16 @@ object Selection {
                   Terminal(newGroups, parents.asInstanceOf[List[PN0]])
                 }
 
+              case Call(f0) => {
+                val f = f0.asInstanceOf[Any => F[Unit]]
+                f(t) *> F.pure(
+                  Terminal(
+                    groups.asInstanceOf[List[List[N0]]],
+                    parents.asInstanceOf[List[PN0]]
+                  )
+                )
+              }
+
               case Each(fn) => {
                 log("Step=Each") *>
                   groups
@@ -592,7 +644,7 @@ object Selection {
           }
         case Continue(current, step) =>
           log("Continue") *>
-            go(current).flatMap { s =>
+            F.defer(go(current)).flatMap { s =>
               go(Continue(s, step))
             }
         case EnterAppend(Enter.Nodes(nodes), name) => {
@@ -663,6 +715,10 @@ object Selection {
 
   private case class Each[F[_], N, D, PN, PD](
       fn: (N, D, Int, List[N]) => F[Unit]
+  ) extends Action[F, N, D, PN, PD]
+
+  private case class Call[F0[_], F[_], N, D, PN, PD](
+      fn: Selection[F0, N, D, PN, PD] => F[Unit]
   ) extends Action[F, N, D, PN, PD]
 
   private case class Data[F[_], N, D0, D, PN, PD](
