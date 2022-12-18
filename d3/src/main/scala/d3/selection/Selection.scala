@@ -25,10 +25,13 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
     Continue(this, Each(fn))
 
   def text(value: String): Selection[F, N, D, PN, PD] =
-    Continue(this, Text(value))
+    Continue(this, TextFn((_: N, _: D, _: Int, _: List[N]) => value))
 
   def text(value: (N, D, Int, List[N]) => String): Selection[F, N, D, PN, PD] =
     Continue(this, TextFn(value))
+
+  def classed(names: String, value: Boolean): Selection[F, N, D, PN, PD] =
+    Continue(this, Classed(names, value))
 
   def selectAll[N0, D0](selector: String): Selection[F, N0, D0, N, D] =
     Continue(this, SelectAll(selector))
@@ -40,7 +43,14 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
     Continue(this, Append(tpe))
 
   def data[D0](data: List[D0]): Selection[F, N, D0, PN, PD] =
-    Continue(this, Data(data))
+    Continue(this, Data(data, None))
+
+  def data[D0](
+      data: List[D0],
+      nodeKey: (N, D, Int, List[N]) => String,
+      datumKey: (PN, D0, Int, List[D0]) => String
+  ): Selection[F, N, D0, PN, PD] =
+    Continue(this, Data(data, Some((nodeKey, datumKey))))
 
   def join[F1[x] >: F[x], N0, N1 >: N, D1 >: D, PN1 >: PN, PD1 >: PD](
       onEnter: Enter[F, N, D, PN, PD] => Selection[F1, N0, D1, PN1, PD1],
@@ -92,7 +102,7 @@ object Selection {
       selection: Selection[F, N, D, PN, PD]
   )(implicit F: Async[F]): F[Unit] = {
 
-    def log(msg: String): F[Unit] = F.delay(println(msg))
+    // def log(msg: String): F[Unit] = F.delay(println(msg))
 
     def go[N0, D0, PN0, PD0](
         s: Selection[F, N0, D0, PN0, PD0]
@@ -246,7 +256,7 @@ object Selection {
 
             }
 
-            case Data(data) =>
+            case Data(data, keyOpt) =>
               println("Step=Data")
               val update = Array.fill(groups.length)(Array.empty[Any])
               val enter =
@@ -261,28 +271,91 @@ object Selection {
                       new Array[EnterNode[Any, Any]](dataLength)
                     val updateGroup = new Array[Any](dataLength)
                     val exitGroup = new Array[Any](groupLength)
+
                     val nodes = group.toArray
                     val dataArr = data.toArray
 
-                    var i = 0
-                    while (i < dataLength) {
-                      if (i < groupLength && nodes(i) != null) {
-                        // nodes(i).asInstanceOf[js.Dynamic].`__data__` = dataArr(i)
-                        val datum = dataArr(i).asInstanceOf[js.Any]
-                        val node = nodes(i)
-                        node.asInstanceOf[js.Dynamic].`__data__` = datum
-                        updateGroup(i) = nodes(i)
-                      } else {
-                        enterGroup(i) = new EnterNode(parent, data(i), null)
-                      }
-                      i += 1
-                    }
+                    keyOpt match {
+                      case None =>
+                        var i = 0
+                        while (i < dataLength) {
+                          if (i < groupLength && nodes(i) != null) {
+                            // nodes(i).asInstanceOf[js.Dynamic].`__data__` = dataArr(i)
+                            val datum = dataArr(i).asInstanceOf[js.Any]
+                            val node = nodes(i)
+                            node.asInstanceOf[js.Dynamic].`__data__` = datum
+                            updateGroup(i) = nodes(i)
+                          } else {
+                            enterGroup(i) = new EnterNode(parent, data(i), null)
+                          }
+                          i += 1
+                        }
 
-                    while (i < groupLength) {
-                      if (nodes(i) != null) {
-                        exitGroup(i) = nodes(i)
-                      }
-                      i += 1
+                        while (i < groupLength) {
+                          if (nodes(i) != null) {
+                            exitGroup(i) = nodes(i)
+                          }
+                          i += 1
+                        }
+                      case Some((nodeKey, datumKey)) =>
+                        val nKey =
+                          nodeKey.asInstanceOf[(Any, Any, Any, Any) => String]
+                        val dKey =
+                          datumKey.asInstanceOf[(Any, Any, Any, Any) => String]
+
+                        val nodebyKeyValue =
+                          collection.mutable.Map.empty[String, Any]
+
+                        val keyValues = new Array[String](groupLength)
+
+                        var i = 0
+                        while (i < groupLength) {
+                          if (i < groupLength && nodes(i) != null) {
+                            val node = nodes(i)
+                            val keyValue = nKey(
+                              node,
+                              node.asInstanceOf[js.Dynamic].`__data__`,
+                              i,
+                              group
+                            )
+                            keyValues(i) = keyValue
+                            if (nodebyKeyValue.contains(keyValue)) {
+                              exitGroup(i) = node
+                            } else {
+                              nodebyKeyValue.addOne(keyValue -> node)
+                            }
+                          }
+                          i += 1
+                        }
+
+                        i = 0
+                        while (i < dataLength) {
+                          val keyValue = dKey(parent, data(i), i, data)
+                          if (nodebyKeyValue.contains(keyValue)) {
+                            val node = nodebyKeyValue(keyValue)
+                            updateGroup(i) = node
+                            val datum = dataArr(i).asInstanceOf[js.Any]
+                            node.asInstanceOf[js.Dynamic].`__data__` = datum
+                            nodebyKeyValue.remove(keyValue)
+                          } else {
+                            enterGroup(i) = new EnterNode(parent, data(i), null)
+                          }
+                          i += 1
+                        }
+
+                        i = 0
+                        while (i < groupLength) {
+                          if (
+                            (nodes(i) != null) && nodebyKeyValue
+                              .contains(keyValues(i)) && (nodebyKeyValue(
+                              keyValues(i)
+                            ) == nodes(i))
+                          ) {
+                            exitGroup(i) = nodes(i)
+                          }
+                          i += 1
+                        }
+
                     }
 
                     var i0 = 0
@@ -326,20 +399,6 @@ object Selection {
                 )
               }
 
-            case Text(value) =>
-              println("Step=Text")
-              F.defer(
-                go(
-                  Continue(
-                    t,
-                    Each { (n: N, _: D, _: Int, _: List[N]) =>
-                      F.delay(
-                        n.asInstanceOf[dom.HTMLElement].textContent = value
-                      )
-                    }
-                  )
-                )
-              )
             case TextFn(value) => {
               println("Step=TextFn")
               val fn = value.asInstanceOf[(Any, Any, Any, Any) => String]
@@ -357,6 +416,29 @@ object Selection {
                 )
               )
             }
+
+            case Classed(names, value) => {
+              println("Step=Classed")
+              F.defer(
+                go(
+                  Continue(
+                    t,
+                    Each { (n: N, _: D, _: Int, _: List[N]) =>
+                      F.delay {
+                        val elm = n.asInstanceOf[dom.HTMLElement]
+                        val classes = names.trim().split("""^|\s+""")
+                        if (value) {
+                          classes.foreach(elm.classList.add)
+                        } else {
+                          classes.foreach(elm.classList.remove)
+                        }
+                      }
+                    }
+                  )
+                )
+              )
+            }
+
             case Append(tpe) =>
               println("Step=Append")
               F.defer(
@@ -389,7 +471,6 @@ object Selection {
                   parents.asInstanceOf[List[PN0]]
                 )
               )
-
             }
 
             case Select(selector) => {
@@ -559,20 +640,25 @@ object Selection {
   private case class Append[+F[_], N, D, PN, PD](tpe: String)
       extends Action[F, N, D, PN, PD]
 
-  private case class Text[+F[_], N, D, PN, PD](value: String)
-      extends Action[F, N, D, PN, PD]
-
   private case class TextFn[+F[_], N, D, PN, PD](
       fn: (N, D, Int, List[N]) => String
+  ) extends Action[F, N, D, PN, PD]
+
+  private case class Classed[+F[_], N, D, PN, PD](
+      names: String,
+      value: Boolean
   ) extends Action[F, N, D, PN, PD]
 
   private case class Each[F[_], N, D, PN, PD](
       fn: (N, D, Int, List[N]) => F[Unit]
   ) extends Action[F, N, D, PN, PD]
 
-  private case class Data[F[_], N, D, PN, PD](
-      data: List[D]
-  ) extends Action[F, N, D, PN, PD]
+  private case class Data[F[_], N, D0, D, PN, PD](
+      data: List[D],
+      keys: Option[
+        ((N, D0, Int, List[N]) => String, (PN, D, Int, List[D]) => String)
+      ]
+  ) extends Action[F, N, D0, PN, PD]
 
   private case class Select[+F[_], N, D, PN, PD](selector: String)
       extends Action[F, N, D, PN, PD]

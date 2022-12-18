@@ -52,7 +52,7 @@ class Example1[F[_]](implicit F: Async[F]) {
       val randomData2 = rng
         .nextIntBounded(5)
         .flatMap { i =>
-          rng.nextIntBounded(100).replicateA(i)
+          rng.nextIntBounded(10).replicateA(i)
         }
         .map(_.map { i => Foo(s"foo-$i", i) })
 
@@ -67,13 +67,18 @@ class Example1[F[_]](implicit F: Async[F]) {
           val sel2 =
             Selection
               .select[F, dom.HTMLDivElement, Unit]("#app")
-              .selectAll[dom.Element, Unit]("span")
-              .data[Foo](data)
+              .selectAll[dom.Element, Foo]("span")
+              .data[Foo](
+                data,
+                (_: Any, d: Foo, _: Any, _: Any) => d.toString,
+                (_: Any, d: Foo, _: Any, _: Any) => d.toString
+              )
               .join[F, dom.Element, dom.Element, Foo, dom.Element, Unit](
                 enter =>
                   enter
                     .append[dom.Element]("span")
-                    .text((n, d, i, g) => s"foo: $d")
+                    .text((n, d, i, g) => s"foo: $d"),
+                update => update.classed("text-pink-500", true)
               )
 
           sel2.compile
