@@ -9,7 +9,6 @@ import cats.syntax.all._
 import Selection._
 import cats.effect.kernel.Async
 import d3.transition.TransitionManager
-import d3.namespaces
 import scala.concurrent.duration.FiniteDuration
 
 sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
@@ -46,6 +45,12 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
 
   def attr(name: String, value: String): Selection[F, N, D, PN, PD] =
     Continue(this, Attr(name, value))
+
+  def attr(
+      name: String,
+      value: (N, D, Int, List[N]) => String
+  ): Selection[F, N, D, PN, PD] =
+    Continue(this, AttrFn(name, value))
 
   def attrTransition(
       name: String,
@@ -501,6 +506,25 @@ object Selection {
                         )
                     }
 
+                    case AttrFn(name, value) => {
+                      val fn =
+                        value.asInstanceOf[(Any, Any, Any, Any) => String]
+                      log("Step=AttrFn") *>
+                        F.defer(
+                          go(
+                            Continue(
+                              t,
+                              Each { (n: N, d: D, i: Int, group: List[N]) =>
+                                F.delay {
+                                  val elm = n.asInstanceOf[dom.Element]
+                                  elm.setAttribute(name, fn(n, d, i, group))
+                                }
+                              }
+                            )
+                          )
+                        )
+                    }
+
                     case Classed(names, value) => {
                       log("Step=Classed") *>
                         F.defer(
@@ -523,7 +547,7 @@ object Selection {
                         )
                     }
 
-                    case Append(tpe) =>
+                    case Append(name) =>
                       log("Step=Append") *>
                         F.defer(
                           go(
@@ -531,10 +555,8 @@ object Selection {
                               t,
                               SelectFn { (n: N, _: D, _: Int, _: List[N]) =>
                                 F.delay {
-                                  n.asInstanceOf[dom.Node]
-                                    .appendChild(
-                                      dom.document.createElement(tpe)
-                                    )
+                                  val parent = n.asInstanceOf[dom.Node]
+                                  parent.appendChild(creator(name, parent))
                                 }
                               }
                             )
@@ -691,23 +713,9 @@ object Selection {
                       nodes.traverse { eNode =>
                         F.delay {
                           if (eNode != null) {
-                            val ownerDocument =
-                              eNode.parent.asInstanceOf[dom.Node].ownerDocument
-                            val namespaceURI =
-                              eNode.parent.asInstanceOf[dom.Node].namespaceURI
-
-                            val child =
-                              if (
-                                namespaceURI == namespaces.xhtml && ownerDocument.documentElement.namespaceURI == namespaces.xhtml
-                              )
-                                ownerDocument.createElement(name)
-                              else
-                                ownerDocument
-                                  .createAttributeNS(namespaceURI, name)
-
-                            // val next = eNode._next.asInstanceOf[dom.Node]
-                            eNode.parent
-                              .asInstanceOf[dom.Node]
+                            val parent = eNode.parent.asInstanceOf[dom.Node]
+                            val child = creator(name, parent)
+                            parent
                               .insertBefore(
                                 child,
                                 eNode._next.asInstanceOf[dom.Node]
@@ -751,6 +759,11 @@ object Selection {
   private case class Attr[+F[_], N, D, PN, PD](key: String, value: String)
       extends Action[F, N, D, PN, PD]
 
+  private case class AttrFn[+F[_], N, D, PN, PD](
+      name: String,
+      value: (N, D, Int, List[N]) => String
+  ) extends Action[F, N, D, PN, PD]
+
   private case class AttrTransition[+F[_], N, D, PN, PD](
       key: String,
       value: String,
@@ -758,7 +771,7 @@ object Selection {
       delay: FiniteDuration
   ) extends Action[F, N, D, PN, PD]
 
-  private case class Append[+F[_], N, D, PN, PD](tpe: String)
+  private case class Append[+F[_], N, D, PN, PD](name: String)
       extends Action[F, N, D, PN, PD]
 
   private case class TextFn[+F[_], N, D, PN, PD](
