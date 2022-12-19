@@ -64,6 +64,8 @@ class Example1[F[_]](implicit F: Async[F]) {
         .attr("viewBox", s"0 0 $width $height")
         .compile
 
+      val transDuration = 750.millis
+
       val loop = (Stream.emit(()) ++ Stream
         .fixedDelay[F](3.second))
         .evalMap(_ => randomLetters)
@@ -84,7 +86,7 @@ class Example1[F[_]](implicit F: Async[F]) {
                   .attr("fill", "green")
                   .attr("x", (_, _, i, _) => s"${16 * i}")
                   .attr("y", "0")
-                  .attrTransition("y", "25", 1.second, 0.seconds)
+                  .attrTransition("y", "25", transDuration, 0.seconds)
                   .text((_, d, _, _) => d),
               update =>
                 update
@@ -92,14 +94,14 @@ class Example1[F[_]](implicit F: Async[F]) {
                   .attrTransition(
                     "x",
                     (_, _, i, _) => s"${16 * i}",
-                    1.second,
+                    transDuration,
                     0.seconds
                   ),
               exit =>
                 exit
-                  .attrTransition("fill", "brown", 1.second, 0.seconds)
-                  .attrTransition("y", "50", 1.second, 0.seconds)
-                  .remove
+                  .attr("fill", "brown")
+                  .attrTransition("y", "50", transDuration, 0.seconds)
+                  .removeAfterTransition
             )
             .compile
         }

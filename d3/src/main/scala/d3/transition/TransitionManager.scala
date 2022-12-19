@@ -26,6 +26,8 @@ trait Transition[F[_]] {
       delay: FiniteDuration
   ): F[Unit]
 
+  def onComplete(cb: F[Unit]): F[Unit]
+
 }
 
 object TransitionManager {
@@ -41,12 +43,16 @@ object TransitionManager {
     for {
 
       ts <- F.ref(List.empty[(Int, F[Unit])]).toResource
+      oc <- F.ref(List.empty[(Int, F[Unit])]).toResource
       id <- F.ref(0).toResource
 
     } yield new TransitionManager[F] {
 
       override def next: F[Transition[F]] = id.getAndUpdate(_ + 1).map { id =>
         new Transition[F] {
+
+          override def onComplete(cb: F[Unit]): F[Unit] =
+            oc.update(xs => (id -> cb) :: xs)
 
           override def attr(
               node: dom.Element,
@@ -64,7 +70,7 @@ object TransitionManager {
                   .evalMap { elapsed =>
                     val t = math
                       .min(1.0, elapsed.toMillis.toDouble / duration.toMillis)
-                    val interpolatedValue = interp(t)
+                    val interpolatedValue = interp(d3.ease.cubicInOut(t))
                     F.delay(
                       node.setAttribute(name, interpolatedValue)
                     )
@@ -81,9 +87,16 @@ object TransitionManager {
       }
 
       override def run: F[Unit] =
-        ts.get.flatMap { tasks =>
-          tasks.groupBy(_._1).toList.sortBy(_._1).traverse_ { case (_, tasks) =>
-            tasks.map(_._2).parSequence_
+        oc.get.flatMap { onCompletes =>
+          val ocById =
+            onCompletes.groupBy(_._1).view.mapValues(_.map(_._2)).toMap
+          ts.get.flatMap { tasks =>
+            tasks.groupBy(_._1).toList.sortBy(_._1).traverse_ {
+              case (id, tasks) =>
+                tasks
+                  .map(_._2)
+                  .parSequence_ *> ocById.get(id).fold(F.unit)(_.parSequence_)
+            }
           }
         }
 

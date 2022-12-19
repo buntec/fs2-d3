@@ -97,6 +97,9 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   def remove: Selection[F, N, D, PN, PD] =
     Continue(this, Remove())
 
+  def removeAfterTransition: Selection[F, N, D, PN, PD] =
+    Continue(this, RemoveAfterTransition())
+
   def transition: Selection[F, N, D, PN, PD] =
     Continue(this, NewTransition())
 
@@ -183,10 +186,32 @@ object Selection {
                   )}""".stripMargin
                 ) *> {
                   step match {
+                    case RemoveAfterTransition() =>
+                      log("Step=RemoveAfterTransition") *>
+                        transRef.get.flatMap { trans =>
+                          F.defer(
+                            go(
+                              Continue(
+                                t,
+                                Each { (n: N, _: D, _: Int, _: List[N]) =>
+                                  val removeNode = F.delay {
+                                    val node = n.asInstanceOf[dom.Node]
+                                    val parent = node.parentNode
+                                    if (parent != null) {
+                                      parent.removeChild(node)
+                                    }
+                                    ()
+                                  }
+                                  trans.onComplete(removeNode)
+                                }
+                              )
+                            )
+                          )
+                        }
                     case AttrTransitionFn(name, value, duration, delay) =>
                       val fn =
                         value.asInstanceOf[(Any, Any, Any, Any) => String]
-                      log("Step=AttrFn") *>
+                      log("Step=AttrTransitionFn") *>
                         transRef.get.flatMap { trans =>
                           F.defer(
                             go(
@@ -852,6 +877,9 @@ object Selection {
   private case class Order[F[_], N, D, PN, PD]() extends Action[F, N, D, PN, PD]
 
   private case class Remove[F[_], N, D, PN, PD]()
+      extends Action[F, N, D, PN, PD]
+
+  private case class RemoveAfterTransition[F[_], N, D, PN, PD]()
       extends Action[F, N, D, PN, PD]
 
   private case class NewTransition[F[_], N, D, PN, PD]()
