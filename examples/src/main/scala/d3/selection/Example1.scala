@@ -83,12 +83,23 @@ class Example1[F[_]](implicit F: Async[F]) {
                   .append[dom.Element]("text")
                   .attr("fill", "green")
                   .attr("x", (_, _, i, _) => s"${16 * i}")
-                  .attr("y", "25")
+                  .attr("y", "0")
+                  .attrTransition("y", "25", 1.second, 0.seconds)
                   .text((_, d, _, _) => d),
               update =>
                 update
                   .attr("fill", "black")
-                  .attr("x", (_, _, i, _) => s"${16 * i}")
+                  .attrTransition(
+                    "x",
+                    (_, _, i, _) => s"${16 * i}",
+                    1.second,
+                    0.seconds
+                  ),
+              exit =>
+                exit
+                  .attrTransition("fill", "brown", 1.second, 0.seconds)
+                  .attrTransition("y", "50", 1.second, 0.seconds)
+                  .remove
             )
             .compile
         }

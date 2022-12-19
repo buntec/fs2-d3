@@ -30,6 +30,13 @@ trait Transition[F[_]] {
 
 object TransitionManager {
 
+  def interpolator(value0: String, value1: String) = {
+    (value0.toDoubleOption, value1.toDoubleOption).tupled match {
+      case None           => (t: Double) => if (t < 1) value0 else value1
+      case Some((x0, x1)) => (t: Double) => (t * x1 + (1.0 - t) * x0).toString
+    }
+  }
+
   def apply[F[_]](implicit F: Async[F]): Resource[F, TransitionManager[F]] =
     for {
 
@@ -49,16 +56,15 @@ object TransitionManager {
               delay: FiniteDuration
           ): F[Unit] = {
             val task = F.delay(node.getAttribute(name)).flatMap { value0 =>
+              val interp = interpolator(value0, value)
               F.sleep(delay) >>
                 Stream
                   .awakeEvery(16.millis)
                   .takeThrough(_ < duration)
                   .evalMap { elapsed =>
-                    val t =
-                      math
-                        .min(1.0, elapsed.toMillis.toDouble / duration.toMillis)
-                    val interpolatedValue =
-                      "foo" // interpolation(value0, value, t)
+                    val t = math
+                      .min(1.0, elapsed.toMillis.toDouble / duration.toMillis)
+                    val interpolatedValue = interp(t)
                     F.delay(
                       node.setAttribute(name, interpolatedValue)
                     )

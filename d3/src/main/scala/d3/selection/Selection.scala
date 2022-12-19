@@ -8,6 +8,7 @@ import cats.syntax.all._
 
 import Selection._
 import cats.effect.kernel.Async
+import cats.effect.implicits._
 import d3.transition.TransitionManager
 import scala.concurrent.duration.FiniteDuration
 
@@ -59,6 +60,14 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
       delay: FiniteDuration
   ): Selection[F, N, D, PN, PD] =
     Continue(this, AttrTransition(name, value, duration, delay))
+
+  def attrTransition(
+      name: String,
+      value: (N, D, Int, List[N]) => String,
+      duration: FiniteDuration,
+      delay: FiniteDuration
+  ): Selection[F, N, D, PN, PD] =
+    Continue(this, AttrTransitionFn(name, value, duration, delay))
 
   def append[N0](tpe: String): Selection[F, N0, D, PN, PD] =
     Continue(this, Append(tpe))
@@ -174,11 +183,33 @@ object Selection {
                   )}""".stripMargin
                 ) *> {
                   step match {
+                    case AttrTransitionFn(name, value, duration, delay) =>
+                      val fn =
+                        value.asInstanceOf[(Any, Any, Any, Any) => String]
+                      log("Step=AttrFn") *>
+                        transRef.get.flatMap { trans =>
+                          F.defer(
+                            go(
+                              Continue(
+                                t,
+                                Each { (n: N, d: D, i: Int, group: List[N]) =>
+                                  trans.attr(
+                                    n.asInstanceOf[dom.Element],
+                                    name,
+                                    fn(n, d, i, group),
+                                    duration,
+                                    delay
+                                  )
+                                }
+                              )
+                            )
+                          )
+                        }
                     case AttrTransition(name, value, duration, delay) =>
                       log("Step=AttrTransition") *>
                         transRef.get.flatMap { trans =>
                           groups.traverse_ { group =>
-                            group.traverse_ { node =>
+                            group.filter(_ != null).traverse_ { node =>
                               trans.attr(
                                 node.asInstanceOf[dom.Element],
                                 name,
@@ -271,7 +302,7 @@ object Selection {
                           )
                           .compile
 
-                        F.defer((run(s1), run(s2), doExit).tupled).flatMap {
+                        F.defer((run(s1), run(s2), doExit).parTupled).flatMap {
                           case (
                                 Terminal(groups0, parents, _, _),
                                 Terminal(groups1, _, _, _),
@@ -602,7 +633,7 @@ object Selection {
                         groups
                           .traverse_ { group =>
                             group.zipWithIndex.traverse_ { case (node, i) =>
-                              if (node != null) {
+                              F.whenA(node != null) {
                                 val data =
                                   node.asInstanceOf[js.Dynamic].`__data__`
                                 val fn0 =
@@ -612,8 +643,6 @@ object Selection {
                                     ]
                                   ]
                                 fn0(node, data, i, group)
-                              } else {
-                                F.unit
                               }
                             }
                           } *> F
@@ -767,6 +796,13 @@ object Selection {
   private case class AttrTransition[+F[_], N, D, PN, PD](
       key: String,
       value: String,
+      duration: FiniteDuration,
+      delay: FiniteDuration
+  ) extends Action[F, N, D, PN, PD]
+
+  private case class AttrTransitionFn[+F[_], N, D, PN, PD](
+      key: String,
+      value: (N, D, Int, List[N]) => String,
       duration: FiniteDuration,
       delay: FiniteDuration
   ) extends Action[F, N, D, PN, PD]
