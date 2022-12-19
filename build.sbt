@@ -70,6 +70,8 @@ ThisBuild / Test / jsEnv := {
   }
 }
 
+ThisBuild / scalafixDependencies += "com.github.liancheng" %% "organize-imports" % "0.6.0"
+
 lazy val scalacheckVersion = "1.16.0"
 lazy val munitVersion = "1.0.0-M5"
 
@@ -88,10 +90,16 @@ lazy val fs2DomVersion = "0.1.0-M1"
 
 lazy val root = tlCrossRootProject.aggregate(d3, examples)
 
+lazy val commonSettings = List(
+  semanticdbEnabled := true, // enable SemanticDB
+  semanticdbVersion := scalafixSemanticdb.revision // only required for Scala 2.x
+)
+
 lazy val d3 = (project
   .in(file("d3")))
   .enablePlugins(ScalaJSPlugin)
   .settings(
+    commonSettings,
     name := "scala-js-d3",
     libraryDependencies ++= Seq(
       "org.scala-js" %%% "scalajs-dom" % scalajsDomVersion,
@@ -111,6 +119,7 @@ lazy val d3 = (project
 lazy val examples = (project in file("examples"))
   .enablePlugins(ScalaJSPlugin, NoPublishPlugin)
   .settings(
+    commonSettings,
     scalaJSUseMainModuleInitializer := true,
     libraryDependencies ++= Seq(
       "org.scala-js" %%% "scalajs-dom" % scalajsDomVersion,

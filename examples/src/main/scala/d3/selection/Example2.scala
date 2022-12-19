@@ -1,15 +1,12 @@
 package d3.selection.examples
 
 import cats.effect.kernel.Async
-
-import cats.effect.implicits._
-import cats.syntax.all._
-import scalajs.js
-
-import org.scalajs.dom
-import d3.selection.Selection
 import cats.effect.std.Random
+import cats.syntax.all._
+import d3.selection.Selection
 import fs2.Stream
+import org.scalajs.dom
+
 import concurrent.duration._
 
 class Example2[F[_]](implicit F: Async[F]) {
@@ -32,12 +29,13 @@ class Example2[F[_]](implicit F: Async[F]) {
         .evalMap { data =>
           val sel2 =
             Selection
-              .select[F, dom.HTMLDivElement, Unit]("#app")
+              .select[F, dom.Element, Nothing]("#app")
               .selectAll[dom.Element, Foo]("span")
-              .data[Foo](
-                data,
-                (_: Any, d: Foo, _: Any, _: Any) => d.toString,
-                (_: Any, d: Foo, _: Any, _: Any) => d.toString
+              .keyedData(
+                data
+              )(
+                (_, d, _, _) => d.toString,
+                (_, d, _, _) => d.toString
               )
               .join[F, dom.Element, dom.Element, Foo, dom.Element, Unit](
                 enter =>

@@ -1,6 +1,7 @@
 package d3.selection.examples
 
-import cats.effect.{IO, IOApp}
+import cats.effect.IO
+import cats.effect.IOApp
 
 object Main extends IOApp.Simple {
 

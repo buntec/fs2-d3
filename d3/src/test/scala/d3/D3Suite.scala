@@ -38,10 +38,7 @@
 
 package d3
 
-import org.scalajs.dom
-import scalajs.js
-import scala.collection.mutable.ListBuffer
-import d3.selection
+
 
 class D3Suite extends munit.FunSuite {
 

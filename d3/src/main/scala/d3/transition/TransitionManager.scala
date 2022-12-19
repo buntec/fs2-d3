@@ -1,11 +1,12 @@
 package d3.transition
 
-import org.scalajs.dom
-import cats.syntax.all._
 import cats.effect.implicits._
-import cats.effect.kernel.Resource
 import cats.effect.kernel.Async
+import cats.effect.kernel.Resource
+import cats.syntax.all._
 import fs2.Stream
+import org.scalajs.dom
+
 import concurrent.duration._
 
 trait TransitionManager[F[_]] {
@@ -33,9 +34,13 @@ trait Transition[F[_]] {
 object TransitionManager {
 
   def interpolator(value0: String, value1: String) = {
-    (value0.toDoubleOption, value1.toDoubleOption).tupled match {
-      case None           => (t: Double) => if (t < 1) value0 else value1
-      case Some((x0, x1)) => (t: Double) => (t * x1 + (1.0 - t) * x0).toString
+    if (value0 == null) { (t: Double) =>
+      if (t < 1) value0 else value1
+    } else {
+      (value0.toDoubleOption, value1.toDoubleOption).tupled match {
+        case None           => (t: Double) => if (t < 1) value0 else value1
+        case Some((x0, x1)) => (t: Double) => (t * x1 + (1.0 - t) * x0).toString
+      }
     }
   }
 

@@ -1,16 +1,15 @@
 package d3.selection
 
-import org.scalajs.dom
-import scalajs.js
-import cats.syntax.all._
-
-// import scalajs.js.JSConverters._
-
-import Selection._
-import cats.effect.kernel.Async
 import cats.effect.implicits._
+import cats.effect.kernel.Async
+import cats.syntax.all._
 import d3.transition.TransitionManager
+import org.scalajs.dom
+
 import scala.concurrent.duration.FiniteDuration
+
+import scalajs.js
+import Selection._
 
 sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
 
@@ -75,8 +74,9 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   def data[D0](data: List[D0]): Selection[F, N, D0, PN, PD] =
     Continue(this, Data(data, None))
 
-  def data[D0](
-      data: List[D0],
+  def keyedData[D0](
+      data: List[D0]
+  )( // curried for better type inference
       nodeKey: (N, D, Int, List[N]) => String,
       datumKey: (PN, D0, Int, List[D0]) => String
   ): Selection[F, N, D0, PN, PD] =

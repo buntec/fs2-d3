@@ -1,53 +1,18 @@
 package d3.selection.examples
 
-import d3.selection._
-
 import cats.effect.kernel.Async
-
-import cats.effect.implicits._
-import cats.syntax.all._
-import scalajs.js
-
-import org.scalajs.dom
-import d3.selection.Selection
 import cats.effect.std.Random
+import cats.syntax.all._
+import d3.selection.Selection
+import d3.selection._
 import fs2.Stream
+import org.scalajs.dom
+
 import concurrent.duration._
 
 class Example1[F[_]](implicit F: Async[F]) {
 
   def run: F[Unit] = {
-
-    // const svg = d3.create("svg")
-    //     .attr("width", width)
-    //     .attr("height", 33)
-    //     .attr("viewBox", `0 -20 ${width} 33`);
-
-    // while (true) {
-    //   const t = svg.transition()
-    //       .duration(750);
-
-    //   svg.selectAll("text")
-    //     .data(randomLetters(), d => d)
-    //     .join(
-    //       enter => enter.append("text")
-    //           .attr("fill", "green")
-    //           .attr("x", (d, i) => i * 16)
-    //           .attr("y", -30)
-    //           .text(d => d)
-    //         .call(enter => enter.transition(t)
-    //           .attr("y", 0)),
-    //       update => update
-    //           .attr("fill", "black")
-    //           .attr("y", 0)
-    //         .call(update => update.transition(t)
-    //           .attr("x", (d, i) => i * 16)),
-    //       exit => exit
-    //           .attr("fill", "brown")
-    //         .call(exit => exit.transition(t)
-    //           .attr("y", 30)
-    //           .remove())
-    //     );
 
     Random.scalaUtilRandom[F].flatMap { rng =>
       val randomLetters = rng.betweenInt(6, 26).flatMap { n =>
@@ -57,7 +22,7 @@ class Example1[F[_]](implicit F: Async[F]) {
       val width = "1000"
       val height = "50"
 
-      val setup = select[F, dom.HTMLDivElement, Unit]("#app")
+      val setup = select[F, dom.Element, Unit]("#app")
         .append("svg")
         .attr("width", width)
         .attr("height", height)
@@ -67,23 +32,23 @@ class Example1[F[_]](implicit F: Async[F]) {
       val transDuration = 750.millis
 
       val loop = (Stream.emit(()) ++ Stream
-        .fixedDelay[F](3.second))
+        .fixedDelay[F](1.second))
         .evalMap(_ => randomLetters)
         .evalMap { data =>
           Selection
-            .select[F, dom.HTMLDivElement, Unit]("#app")
-            .select("svg")
+            .select[F, dom.Element, Nothing]("#app")
+            .select[dom.Element]("svg")
             .selectAll[dom.Element, String]("text")
-            .data[String](
-              data,
-              (_: Any, d: String, _: Any, _: Any) => d,
-              (_: Any, d: String, _: Any, _: Any) => d
+            .keyedData(data)(
+              (_, d, _, _) => d,
+              (_, d, _, _) => d
             )
-            .join[F, dom.Element, dom.Element, String, dom.Element, Unit](
+            .join(
               enter =>
                 enter
                   .append[dom.Element]("text")
                   .attr("fill", "green")
+                  .attr("opacity", "1.0")
                   .attr("x", (_, _, i, _) => s"${16 * i}")
                   .attr("y", "0")
                   .attrTransition("y", "25", transDuration, 0.seconds)
@@ -101,6 +66,7 @@ class Example1[F[_]](implicit F: Async[F]) {
                 exit
                   .attr("fill", "brown")
                   .attrTransition("y", "50", transDuration, 0.seconds)
+                  .attrTransition("opacity", "0", transDuration, 0.seconds)
                   .removeAfterTransition
             )
             .compile
