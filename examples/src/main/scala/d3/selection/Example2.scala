@@ -3,7 +3,6 @@ package d3.selection.examples
 import cats.effect.kernel.Async
 import cats.effect.std.Random
 import cats.syntax.all._
-import d3.selection.Selection
 import fs2.Stream
 import org.scalajs.dom
 
@@ -28,8 +27,7 @@ class Example2[F[_]](implicit F: Async[F]) {
         .evalMap(_ => randomData2)
         .evalMap { data =>
           val sel2 =
-            Selection
-              .select[F, dom.Element, Nothing]("#app")
+            d3.select[F, dom.Element, Nothing]("#app")
               .selectAll[dom.Element, Foo]("span")
               .keyedData(
                 data

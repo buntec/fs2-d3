@@ -38,13 +38,19 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
     Continue(this, TextFn(value))
 
   def classed(names: String, value: Boolean): Selection[F, N, D, PN, PD] =
-    Continue(this, Classed(names, value))
+    Continue(this, ClassedFn(names, (_: N, _: D, _: Int, _: List[N]) => value))
+
+  def classed(
+      names: String,
+      value: (N, D, Int, List[N]) => Boolean
+  ): Selection[F, N, D, PN, PD] =
+    Continue(this, ClassedFn(names, value))
 
   def selectAll[N0, D0](selector: String): Selection[F, N0, D0, N, D] =
     Continue(this, SelectAll(selector))
 
   def attr(name: String, value: String): Selection[F, N, D, PN, PD] =
-    Continue(this, Attr(name, value))
+    Continue(this, AttrFn(name, (_: N, _: D, _: Int, _: List[N]) => value))
 
   def attr(
       name: String,
@@ -58,7 +64,15 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
       duration: FiniteDuration,
       delay: FiniteDuration
   ): Selection[F, N, D, PN, PD] =
-    Continue(this, AttrTransition(name, value, duration, delay))
+    Continue(
+      this,
+      AttrTransitionFn(
+        name,
+        (_: N, _: D, _: Int, _: List[N]) => value,
+        duration,
+        delay
+      )
+    )
 
   def attrTransition(
       name: String,
@@ -68,15 +82,15 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   ): Selection[F, N, D, PN, PD] =
     Continue(this, AttrTransitionFn(name, value, duration, delay))
 
-  def append[N0](tpe: String): Selection[F, N0, D, PN, PD] =
-    Continue(this, Append(tpe))
+  def append[N0](name: String): Selection[F, N0, D, PN, PD] =
+    Continue(this, Append(name))
 
   def data[D0](data: List[D0]): Selection[F, N, D0, PN, PD] =
     Continue(this, Data(data, None))
 
   def keyedData[D0](
       data: List[D0]
-  )( // curried for better type inference
+  )( // curry for better type inference
       nodeKey: (N, D, Int, List[N]) => String,
       datumKey: (PN, D0, Int, List[D0]) => String
   ): Selection[F, N, D0, PN, PD] =
@@ -230,22 +244,6 @@ object Selection {
                             )
                           )
                         }
-                    case AttrTransition(name, value, duration, delay) =>
-                      log("Step=AttrTransition") *>
-                        transRef.get.flatMap { trans =>
-                          groups.traverse_ { group =>
-                            group.filter(_ != null).traverse_ { node =>
-                              trans.attr(
-                                node.asInstanceOf[dom.Element],
-                                name,
-                                value,
-                                duration,
-                                delay
-                              )
-                            }
-                          }
-                        } *> F
-                          .pure(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
                     case NewTransition() =>
                       log("Step=NewTransition") *>
                         tm.next.flatMap { newTrans =>
@@ -403,7 +401,6 @@ object Selection {
                                   var i = 0
                                   while (i < dataLength) {
                                     if (i < groupLength && nodes(i) != null) {
-                                      // nodes(i).asInstanceOf[js.Dynamic].`__data__` = dataArr(i)
                                       val datum =
                                         dataArr(i).asInstanceOf[js.Any]
                                       val node = nodes(i)
@@ -581,16 +578,19 @@ object Selection {
                         )
                     }
 
-                    case Classed(names, value) => {
-                      log("Step=Classed") *>
+                    case ClassedFn(names, value) => {
+                      val fn =
+                        value.asInstanceOf[(Any, Any, Any, Any) => Boolean]
+                      log("Step=ClassedFn") *>
                         F.defer(
                           go(
                             Continue(
                               t,
-                              Each { (n: N, _: D, _: Int, _: List[N]) =>
+                              Each { (n: N, d: D, i: Int, group: List[N]) =>
                                 F.delay {
                                   val elm = n.asInstanceOf[dom.Element]
                                   val classes = names.trim().split("""^|\s+""")
+                                  val value = fn(n, d, i, group)
                                   if (value) {
                                     classes.foreach(elm.classList.add)
                                   } else {
@@ -618,22 +618,6 @@ object Selection {
                             )
                           )
                         )
-
-                    case Attr(name, value) => {
-                      log("Step=Attr") *> F.defer(
-                        go(
-                          Continue(
-                            t,
-                            Each { (n: N, _: D, _: Int, _: List[N]) =>
-                              F.delay {
-                                val elm = n.asInstanceOf[dom.Element]
-                                elm.setAttribute(name, value)
-                              }
-                            }
-                          )
-                        )
-                      )
-                    }
 
                     case Select(selector) =>
                       log("Step=Select") *> F.delay {
@@ -810,19 +794,9 @@ object Selection {
   private sealed abstract class Action[+F[_], +N, +D, +PN, +PD]
       extends Selection[F, N, D, PN, PD]
 
-  private case class Attr[+F[_], N, D, PN, PD](key: String, value: String)
-      extends Action[F, N, D, PN, PD]
-
   private case class AttrFn[+F[_], N, D, PN, PD](
       name: String,
       value: (N, D, Int, List[N]) => String
-  ) extends Action[F, N, D, PN, PD]
-
-  private case class AttrTransition[+F[_], N, D, PN, PD](
-      key: String,
-      value: String,
-      duration: FiniteDuration,
-      delay: FiniteDuration
   ) extends Action[F, N, D, PN, PD]
 
   private case class AttrTransitionFn[+F[_], N, D, PN, PD](
@@ -839,9 +813,9 @@ object Selection {
       fn: (N, D, Int, List[N]) => String
   ) extends Action[F, N, D, PN, PD]
 
-  private case class Classed[+F[_], N, D, PN, PD](
+  private case class ClassedFn[+F[_], N, D, PN, PD](
       names: String,
-      value: Boolean
+      value: (N, D, Int, List[N]) => Boolean
   ) extends Action[F, N, D, PN, PD]
 
   private case class Each[F[_], N, D, PN, PD](
