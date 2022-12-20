@@ -5,6 +5,6 @@ import cats.effect.IOApp
 
 object Main extends IOApp.Simple {
 
-  override def run: IO[Unit] = new Example4[IO].run
+  override def run: IO[Unit] = new Example1[IO].run
 
 }

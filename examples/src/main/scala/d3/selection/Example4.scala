@@ -24,7 +24,7 @@ class Example4[F[_]](implicit F: Async[F]) {
     .evalMap { d =>
       F.delay(println(s"elapsed=${d.toMillis} ms"))
     }
-    .interruptAfter(3.second)
+    .interruptAfter(1.second)
     .compile
     .drain
 

@@ -8,6 +8,7 @@ import fs2.Stream
 import org.scalajs.dom
 
 import concurrent.duration._
+import d3.internal.Scheduler
 
 trait TransitionManager[F[_]] {
 
@@ -69,8 +70,7 @@ object TransitionManager {
             val task = F.delay(node.getAttribute(name)).flatMap { value0 =>
               val interp = interpolator(value0, value)
               F.sleep(delay) >>
-                Stream
-                  .awakeEvery(16.millis)
+                Scheduler.awakeEveryAnimationFrame
                   .takeThrough(_ < duration)
                   .evalMap { elapsed =>
                     val t = math

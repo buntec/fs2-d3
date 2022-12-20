@@ -191,7 +191,8 @@ object Selection {
       selection: Selection[F, N, D, PN, PD]
   )(implicit F: Async[F]): F[Unit] = {
 
-    def log(msg: String): F[Unit] = F.delay(println(msg))
+    def log(msg: String): F[Unit] =
+      F.whenA(d3.Configuration.logging)(F.delay(println(msg)))
 
     def run[N0, D0, PN0, PD0](
         selection: Selection[F, N0, D0, PN0, PD0]

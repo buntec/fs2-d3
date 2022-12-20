@@ -17,7 +17,6 @@ object Scheduler {
   def awakeEveryAnimationFrame[F[_]](implicit
       F: Async[F]
   ): Stream[F, Duration] = {
-
     val queue = (
       Dispatcher.sequential,
       Resource.make(F.ref(false))(_.set(true)),
@@ -27,15 +26,15 @@ object Scheduler {
       }),
       Queue.dropping[F, Double](1).toResource
     ).tupled.flatMap { case (dispatcher, signal, id, queue) =>
-      def go(t0: Double): F[Unit] = signal.get.flatMap {
+      def go: F[Unit] = signal.get.flatMap {
         case true => F.unit
         case false =>
-          F.delay(dom.window.requestAnimationFrame { t1 =>
-            dispatcher.unsafeRunAndForget(queue.offer(t0) *> go(t1))
+          F.delay(dom.window.requestAnimationFrame { t =>
+            dispatcher.unsafeRunAndForget(queue.offer(t) *> go)
           }).flatMap(id0 => id.set(Some(id0)))
       }
 
-      (go(0) >> F.never[Unit]).background >> Resource.pure(queue)
+      (go >> F.never[Unit]).background >> Resource.pure(queue)
     }
 
     Stream.eval(F.monotonic).flatMap { start =>
@@ -44,23 +43,6 @@ object Scheduler {
       } >> Stream.eval(
         F.monotonic.map(_ - start)
       )
-    }
-
-  }
-
-  def schedule[F[_]](implicit F: Async[F]) = {
-
-    Dispatcher.sequential.use { dispatcher =>
-      def go(t0: Double): F[Unit] = F.delay {
-        println(t0)
-        dom.window.requestAnimationFrame { t1 =>
-          dispatcher.unsafeRunAndForget(go(t1))
-        }
-        ()
-      }
-
-      go(0) >> F.never[Unit]
-
     }
 
   }
