@@ -18,7 +18,7 @@ object Scheduler {
   ): Stream[F, Duration] = {
     val queue = (
       Dispatcher.sequential,
-      Resource.make(F.ref(false))(_.set(true)),
+      Resource.make(F.ref(true))(_.set(false)), // perhaps this is not needed?
       Resource.make(F.ref(Option.empty[Int]))(_.get.flatMap {
         case None     => F.unit
         case Some(id) => F.delay(dom.window.cancelAnimationFrame(id))
@@ -26,11 +26,11 @@ object Scheduler {
       Queue.dropping[F, Double](1).toResource
     ).tupled.flatMap { case (dispatcher, signal, id, queue) =>
       def go: F[Unit] = signal.get.flatMap {
-        case true => F.unit
-        case false =>
-          F.delay(dom.window.requestAnimationFrame { t =>
+        case true =>
+          F.bracket(F.delay(dom.window.requestAnimationFrame { t =>
             dispatcher.unsafeRunAndForget(queue.offer(t) *> go)
-          }).flatMap(id0 => id.set(Some(id0)))
+          }))(_ => F.unit)(id0 => id.set(Some(id0)))
+        case false => F.unit
       }
 
       (go >> F.never[Unit]).background >> Resource.pure(queue)

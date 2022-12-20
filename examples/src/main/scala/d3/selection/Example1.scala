@@ -21,7 +21,7 @@ class Example1[F[_]](implicit F: Async[F]) {
     val height = "50"
 
     val setup = d3
-      .select[F, dom.Element, Unit]("#app")
+      .select("#app")
       .append("svg")
       .attr("width", width)
       .attr("height", height)
