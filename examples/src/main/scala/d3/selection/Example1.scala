@@ -42,30 +42,28 @@ class Example1[F[_]](implicit F: Async[F]) {
             (_, d, _, _) => d
           )
           .join(
-            enter =>
-              enter
-                .append[dom.Element]("text")
-                .attr("fill", "green")
-                .attr("opacity", "1.0")
-                .attr("x", (_, _, i, _) => s"${16 * i}")
-                .attr("y", "0")
-                .attrTransition("y", "25", transDuration, 0.seconds)
-                .text((_, d, _, _) => d),
-            update =>
-              update
-                .attr("fill", "black")
-                .attrTransition(
-                  "x",
-                  (_, _, i, _) => s"${16 * i}",
-                  transDuration,
-                  0.seconds
-                ),
-            exit =>
-              exit
-                .attr("fill", "brown")
-                .attrTransition("y", "50", transDuration, 0.seconds)
-                .attrTransition("opacity", "0", transDuration, 0.seconds)
-                .removeAfterTransition
+            // enter
+            _.append[dom.Element]("text")
+              .attr("fill", "green")
+              .attr("opacity", "1.0")
+              .attr("x", (_, _, i, _) => s"${16 * i}")
+              .attr("y", "0")
+              .text((_, d, _, _) => d)
+              .transition
+              .attr("y", "25", transDuration, 0.seconds),
+            // update
+            _.attr("fill", "black").transition
+              .attr(
+                "x",
+                (_, _, i, _) => s"${16 * i}",
+                transDuration,
+                0.seconds
+              ),
+            // exit
+            _.attr("fill", "brown").transition
+              .attr("y", "50", transDuration, 0.seconds)
+              .attr("opacity", "0", transDuration, 0.seconds)
+              .remove
           )
           .compile
       }
