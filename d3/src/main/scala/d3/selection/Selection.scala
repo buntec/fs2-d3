@@ -81,6 +81,9 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   ): Selection[F, N, D, PN, PD] =
     Continue(this, Join(onEnter, onUpdate, onExit))
 
+  def join(name: String): Selection[F, N, D, PN, PD] =
+    join(enter => enter.append(name))
+
   def order: Selection[F, N, D, PN, PD] =
     Continue(this, Order())
 
@@ -167,6 +170,15 @@ object Selection {
     implicit def toSelection[F[_], N, D, PN, PD](
         transition: Transition[F, N, D, PN, PD]
     ): Selection[F, N, D, PN, PD] = transition.selection
+
+    implicit class TransitionOps[F[_], N, D, PN, PD](
+        private val t: Transition[F, N, D, PN, PD]
+    ) extends AnyVal {
+
+      def compile(implicit F: Async[F]): F[Unit] =
+        Selection.compile(t.selection)
+
+    }
 
   }
 
