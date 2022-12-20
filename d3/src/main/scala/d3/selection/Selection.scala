@@ -139,6 +139,109 @@ object Selection {
 
   }
 
+  sealed abstract class Transition[+F[_], +N, +D, +PN, +PD] {
+
+    def transition: Transition[F, N, D, PN, PD] =
+      Transition.Continue(this, Transition.New())
+
+    def remove: Transition[F, N, D, PN, PD] =
+      Transition.Continue(this, Transition.Remove())
+
+    def attrTransition(
+        name: String,
+        value: String,
+        duration: FiniteDuration,
+        delay: FiniteDuration
+    ): Transition[F, N, D, PN, PD] =
+      Transition.Continue(
+        this,
+        Transition.Attr(
+          name,
+          (_: N, _: D, _: Int, _: List[N]) => value,
+          duration,
+          delay
+        )
+      )
+
+    def attrTransition(
+        name: String,
+        value: (N, D, Int, List[N]) => String,
+        duration: FiniteDuration,
+        delay: FiniteDuration
+    ): Transition[F, N, D, PN, PD] =
+      Transition.Continue(this, Transition.Attr(name, value, duration, delay))
+
+  }
+
+  object Transition {
+
+    case class Root[F[_], N, D, PN, PD](selection: Selection[F, N, D, PN, PD])
+        extends Transition[F, N, D, PN, PD]
+
+    private sealed abstract class Action[+F[_], +N, +D, +PN, +PD]
+
+    private case class Continue[+F[_], N, D, PN, PD](
+        current: Transition[F, N, D, PN, PD],
+        step: Action[F, N, D, PN, PD]
+    ) extends Transition[F, N, D, PN, PD]
+
+    private case class Attr[+F[_], N, D, PN, PD](
+        key: String,
+        value: (N, D, Int, List[N]) => String,
+        duration: FiniteDuration,
+        delay: FiniteDuration
+    ) extends Action[F, N, D, PN, PD]
+
+    private case class New[F[_], N, D, PN, PD]() extends Action[F, N, D, PN, PD]
+
+    private case class Remove[F[_], N, D, PN, PD]()
+        extends Action[F, N, D, PN, PD]
+
+    def compile[F[_], N, D, PN, PD](
+        transition: Transition[F, N, D, PN, PD]
+    )(implicit F: Async[F]): F[Selection[F, N, D, PN, PD]] = {
+
+      transition match {
+        case Root(selection) => F.pure(selection)
+        case Continue(Root(selection), step) =>
+          step match {
+            case New() =>
+              F.pure(
+                Selection.Continue(
+                  selection,
+                  NewTransition()
+                )
+              )
+            case Remove() =>
+              F.pure(
+                Selection.Continue(
+                  selection,
+                  RemoveAfterTransition()
+                )
+              )
+            case Attr(key, value, duration, delay) =>
+              F.pure(
+                Selection.Continue(
+                  selection,
+                  Selection.AttrTransitionFn(
+                    key,
+                    value.asInstanceOf[(N, D, Int, List[N]) => String],
+                    duration,
+                    delay
+                  )
+                )
+              )
+          }
+        case Continue(current, step) =>
+          F.defer(compile(current)).flatMap { sel =>
+            compile(Continue(Root(sel), step))
+          }
+      }
+
+    }
+
+  }
+
   sealed abstract class Enter[+F[_], +N, +D, +PN, +PD] {
     def append[N0](name: String): Selection[F, N0, D, PN, PD] =
       EnterAppend(this, name)
