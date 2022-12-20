@@ -38,8 +38,6 @@
 
 package d3
 
-
-
 class D3Suite extends munit.FunSuite {
 
   test("bar") {

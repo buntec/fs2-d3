@@ -4,11 +4,10 @@ import cats.effect.implicits._
 import cats.effect.kernel.Async
 import cats.effect.kernel.Resource
 import cats.syntax.all._
-import fs2.Stream
+import d3.internal.Scheduler
 import org.scalajs.dom
 
 import concurrent.duration._
-import d3.internal.Scheduler
 
 trait TransitionManager[F[_]] {
 

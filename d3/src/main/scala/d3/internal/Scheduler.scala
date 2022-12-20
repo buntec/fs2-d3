@@ -1,15 +1,14 @@
 package d3.internal
 
-import org.scalajs.dom
-
-import fs2.Stream
-import cats.syntax.all._
 import cats.effect.implicits._
 import cats.effect.kernel.Async
-import cats.effect.std.Dispatcher
-import fs2.concurrent.SignallingRef
-import cats.effect.std.Queue
 import cats.effect.kernel.Resource
+import cats.effect.std.Dispatcher
+import cats.effect.std.Queue
+import cats.syntax.all._
+import fs2.Stream
+import org.scalajs.dom
+
 import scala.concurrent.duration.Duration
 
 object Scheduler {

@@ -1,13 +1,11 @@
 package d3.selection.examples
 
-import cats.syntax.all._
 import cats.effect.kernel.Async
-import org.scalajs.dom
-import concurrent.duration._
-
+import cats.syntax.all._
+import d3.internal.Scheduler
 import fs2.Stream
 
-import d3.internal.Scheduler
+import concurrent.duration._
 
 class Example4[F[_]](implicit F: Async[F]) {
 
