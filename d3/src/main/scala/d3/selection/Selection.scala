@@ -13,41 +13,13 @@ import Selection._
 
 sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
 
-  def select[N0](selector: String): Selection[F, N0, D, PN, PD] =
-    Continue(this, Select(selector))
+  def append[N0](name: String): Selection[F, N0, D, PN, PD] =
+    Continue(this, Append(name))
 
-  def select[N0, F1[x] >: F[x]](
-      selector: (N, D, Int, List[N]) => F1[N0]
-  ): Selection[F1, N0, D, PN, PD] =
-    Continue(this, SelectFn(selector))
-
-  def each[F1[x] >: F[x]](
-      fn: (N, D, Int, List[N]) => F1[Unit]
-  ): Selection[F1, N, D, PN, PD] =
-    Continue(this, Each(fn))
-
-  def call[F1[x] >: F[x]](
-      fn: Selection[F, N, D, PN, PD] => F1[Unit]
-  ): Selection[F1, N, D, PN, PD] =
-    Continue(this, Call(fn))
-
-  def text(value: String): Selection[F, N, D, PN, PD] =
-    Continue(this, TextFn((_: N, _: D, _: Int, _: List[N]) => value))
-
-  def text(value: (N, D, Int, List[N]) => String): Selection[F, N, D, PN, PD] =
-    Continue(this, TextFn(value))
-
-  def classed(names: String, value: Boolean): Selection[F, N, D, PN, PD] =
-    Continue(this, ClassedFn(names, (_: N, _: D, _: Int, _: List[N]) => value))
-
-  def classed(
-      names: String,
-      value: (N, D, Int, List[N]) => Boolean
-  ): Selection[F, N, D, PN, PD] =
-    Continue(this, ClassedFn(names, value))
-
-  def selectAll[N0, D0](selector: String): Selection[F, N0, D0, N, D] =
-    Continue(this, SelectAll(selector))
+  def append[F1[x] >: F[x], N0](
+      fn: (N, D, Int, List[N]) => F1[N0]
+  ): Selection[F, N0, D, PN, PD] =
+    Continue(this, AppendFn(fn))
 
   def attr(name: String, value: String): Selection[F, N, D, PN, PD] =
     Continue(this, AttrFn(name, (_: N, _: D, _: Int, _: List[N]) => value))
@@ -58,8 +30,19 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   ): Selection[F, N, D, PN, PD] =
     Continue(this, AttrFn(name, value))
 
-  def append[N0](name: String): Selection[F, N0, D, PN, PD] =
-    Continue(this, Append(name))
+  def call[F1[x] >: F[x]](
+      fn: Selection[F, N, D, PN, PD] => F1[Unit]
+  ): Selection[F1, N, D, PN, PD] =
+    Continue(this, Call(fn))
+
+  def classed(names: String, value: Boolean): Selection[F, N, D, PN, PD] =
+    Continue(this, ClassedFn(names, (_: N, _: D, _: Int, _: List[N]) => value))
+
+  def classed(
+      names: String,
+      value: (N, D, Int, List[N]) => Boolean
+  ): Selection[F, N, D, PN, PD] =
+    Continue(this, ClassedFn(names, value))
 
   def data[D0](data: List[D0]): Selection[F, N, D0, PN, PD] =
     Continue(this, Data(data, None))
@@ -71,6 +54,11 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
       datumKey: (PN, D0, Int, List[D0]) => String
   ): Selection[F, N, D0, PN, PD] =
     Continue(this, Data(data, Some((nodeKey, datumKey))))
+
+  def each[F1[x] >: F[x]](
+      fn: (N, D, Int, List[N]) => F1[Unit]
+  ): Selection[F1, N, D, PN, PD] =
+    Continue(this, Each(fn))
 
   def join[F1[x] >: F[x], N0, N1 >: N, D1 >: D, PN1 >: PN, PD1 >: PD](
       onEnter: Enter[F, N, D, PN, PD] => Selection[F1, N0, D1, PN1, PD1],
@@ -89,6 +77,23 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
 
   def remove: Selection[F, N, D, PN, PD] =
     Continue(this, Remove())
+
+  def select[N0](selector: String): Selection[F, N0, D, PN, PD] =
+    Continue(this, Select(selector))
+
+  def select[N0, F1[x] >: F[x]](
+      selector: (N, D, Int, List[N]) => F1[N0]
+  ): Selection[F1, N0, D, PN, PD] =
+    Continue(this, SelectFn(selector))
+
+  def selectAll[N0, D0](selector: String): Selection[F, N0, D0, N, D] =
+    Continue(this, SelectAll(selector))
+
+  def text(value: String): Selection[F, N, D, PN, PD] =
+    Continue(this, TextFn((_: N, _: D, _: Int, _: List[N]) => value))
+
+  def text(value: (N, D, Int, List[N]) => String): Selection[F, N, D, PN, PD] =
+    Continue(this, TextFn(value))
 
   def transition: Transition[F, N, D, PN, PD] =
     new Transition(Continue(this, NewTransition()))
@@ -663,6 +668,27 @@ object Selection {
                           )
                         )
 
+                    case AppendFn(fn) =>
+                      log("Step=AppendFn") *>
+                        F.defer(
+                          go(
+                            Continue(
+                              t,
+                              SelectFn { (n: N, d: D, i: Int, group: List[N]) =>
+                                fn.asInstanceOf[(Any, Any, Any, Any) => F[
+                                  dom.Node
+                                ]](n, d, i, group)
+                                  .flatMap { node =>
+                                    F.delay {
+                                      val parent = n.asInstanceOf[dom.Node]
+                                      parent.appendChild(node)
+                                    }
+                                  }
+                              }
+                            )
+                          )
+                        )
+
                     case Select(selector) =>
                       log("Step=Select") *> F.delay {
                         val newGroups = groups.map { group =>
@@ -782,11 +808,6 @@ object Selection {
                     go(Continue(s, step))
                   }
               case EnterAppend(Enter.Nodes(nodes), name) => {
-                val parents = nodes
-                  .map(nodes =>
-                    nodes.find(_ != null).map(_.parent).getOrElse(null)
-                  )
-                  .asInstanceOf[List[PN0]]
                 log(
                   s"EnterAppend: nodes = ${nodes.map(_.mkString(", ")).mkString("\n")}"
                 ) *>
@@ -812,6 +833,11 @@ object Selection {
                       }
                     }
                     .map { groups =>
+                      val parents = nodes
+                        .map(nodes =>
+                          nodes.find(_ != null).map(_.parent).getOrElse(null)
+                        )
+                        .asInstanceOf[List[PN0]]
                       Terminal(groups.asInstanceOf[List[List[N0]]], parents)
                     }
               }
@@ -838,26 +864,30 @@ object Selection {
   private sealed abstract class Action[+F[_], +N, +D, +PN, +PD]
       extends Selection[F, N, D, PN, PD]
 
-  private case class AttrFn[+F[_], N, D, PN, PD](
+  private case class AttrFn[F[_], N, D, PN, PD](
       name: String,
       value: (N, D, Int, List[N]) => String
   ) extends Action[F, N, D, PN, PD]
 
-  private case class AttrTransitionFn[+F[_], N, D, PN, PD](
+  private case class AttrTransitionFn[F[_], N, D, PN, PD](
       name: String,
       value: (N, D, Int, List[N]) => String,
       duration: FiniteDuration,
       delay: FiniteDuration
   ) extends Action[F, N, D, PN, PD]
 
-  private case class Append[+F[_], N, D, PN, PD](name: String)
+  private case class Append[F[_], N, D, PN, PD](name: String)
       extends Action[F, N, D, PN, PD]
 
-  private case class TextFn[+F[_], N, D, PN, PD](
+  private case class AppendFn[F[_], F1[x] >: F[x], N, N1, D, PN, PD](
+      fn: (N, D, Int, List[N]) => F1[N1]
+  ) extends Action[F, N, D, PN, PD]
+
+  private case class TextFn[F[_], N, D, PN, PD](
       fn: (N, D, Int, List[N]) => String
   ) extends Action[F, N, D, PN, PD]
 
-  private case class ClassedFn[+F[_], N, D, PN, PD](
+  private case class ClassedFn[F[_], N, D, PN, PD](
       names: String,
       value: (N, D, Int, List[N]) => Boolean
   ) extends Action[F, N, D, PN, PD]
@@ -877,7 +907,7 @@ object Selection {
       ]
   ) extends Action[F, N, D0, PN, PD]
 
-  private case class Select[+F[_], N, D, PN, PD](selector: String)
+  private case class Select[F[_], N, D, PN, PD](selector: String)
       extends Action[F, N, D, PN, PD]
 
   private case class SelectFn[F[_], N, D, PN, PD, N0](
@@ -903,26 +933,26 @@ object Selection {
   private case class NewTransition[F[_], N, D, PN, PD]()
       extends Action[F, N, D, PN, PD]
 
-  private case class SelectAll[+F[_], N, D, PN, PD](selector: String)
+  private case class SelectAll[F[_], N, D, PN, PD](selector: String)
       extends Action[F, N, D, PN, PD]
 
-  private case class SelectAllFn[+F[_], N, D, PN, PD, N0](
+  private case class SelectAllFn[F[_], N, D, PN, PD, N0](
       selector: (N, D, Int, List[N]) => N0
   ) extends Action[F, N0, D, PN, PD]
 
-  private case class Terminal[+F[_], N, D, PN, PD](
+  private case class Terminal[F[_], N, D, PN, PD](
       groups: List[List[N]],
       parents: List[PN],
       enter: Option[List[List[EnterNode[D, PN]]]] = None,
       exit: Option[List[List[N]]] = None
   ) extends Selection[F, N, D, PN, PD]
 
-  private case class Continue[+F[_], N, D, PN, PD, N0, D0, PN0, PD0](
+  private case class Continue[F[_], N, D, PN, PD, N0, D0, PN0, PD0](
       current: Selection[F, N, D, PN, PD],
       step: Action[F, N, D, PN, PD]
   ) extends Selection[F, N0, D0, PN0, PD0]
 
-  private case class EnterAppend[+F[_], N, D, PN, PD, N0, D0, PN0, PD0](
+  private case class EnterAppend[F[_], N, D, PN, PD, N0, D0, PN0, PD0](
       enter: Enter[F, N, D, PN, PD],
       name: String
   ) extends Selection[F, N0, D0, PN0, PD0]
