@@ -47,6 +47,17 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   def data[D0](data: List[D0]): Selection[F, N, D0, PN, PD] =
     Continue(this, Data(data, None))
 
+  def datum[D0](value: Option[D0]): Selection[F, N, D0, PN, PD] =
+    Continue(
+      this,
+      Property("__data__", (_: N, _: D, _: Int, _: List[N]) => value)
+    )
+
+  def datum[D0](
+      value: (N, D, Int, List[N]) => Some[D0]
+  ): Selection[F, N, D0, PN, PD] =
+    Continue(this, Property("__data__", value))
+
   def keyedData[D0](
       data: List[D0]
   )( // curry for better type inference
@@ -74,6 +85,18 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
 
   def order: Selection[F, N, D, PN, PD] =
     Continue(this, Order())
+
+  def property(
+      name: String,
+      value: Option[Any]
+  ): Selection[F, N, D, PN, PD] =
+    Continue(this, Property(name, (_: N, _: D, _: Int, _: List[N]) => value))
+
+  def property(
+      name: String,
+      value: (N, D, Int, List[N]) => Option[Any]
+  ): Selection[F, N, D, PN, PD] =
+    Continue(this, Property(name, value))
 
   def remove: Selection[F, N, D, PN, PD] =
     Continue(this, Remove())
@@ -450,11 +473,9 @@ object Selection {
                                   var i = 0
                                   while (i < dataLength) {
                                     if (i < groupLength && nodes(i) != null) {
-                                      val datum =
-                                        dataArr(i).asInstanceOf[js.Any]
-                                      val node = nodes(i)
-                                      node.asInstanceOf[js.Dynamic].`__data__` =
-                                        datum
+                                      nodes(i).asInstanceOf[js.Dictionary[Any]](
+                                        "__data__"
+                                      ) = dataArr(i)
                                       updateGroup(i) = nodes(i)
                                     } else {
                                       enterGroup(i) =
@@ -493,8 +514,9 @@ object Selection {
                                       val keyValue = nKey(
                                         node,
                                         node
-                                          .asInstanceOf[js.Dynamic]
-                                          .`__data__`,
+                                          .asInstanceOf[js.Dictionary[Any]]
+                                          .get("__data__")
+                                          .getOrElse(null),
                                         i,
                                         group
                                       )
@@ -515,10 +537,9 @@ object Selection {
                                     if (nodebyKeyValue.contains(keyValue)) {
                                       val node = nodebyKeyValue(keyValue)
                                       updateGroup(i) = node
-                                      val datum =
-                                        dataArr(i).asInstanceOf[js.Any]
-                                      node.asInstanceOf[js.Dynamic].`__data__` =
-                                        datum
+                                      node.asInstanceOf[js.Dictionary[Any]](
+                                        "__data__"
+                                      ) = dataArr(i)
                                       nodebyKeyValue.remove(keyValue)
                                     } else {
                                       enterGroup(i) =
@@ -627,6 +648,30 @@ object Selection {
                         )
                     }
 
+                    case Property(name, valueFn) => {
+                      log("Step=AttrFn") *>
+                        F.defer(
+                          go(
+                            Continue(
+                              t,
+                              Each { (n: N, d: D, i: Int, group: List[N]) =>
+                                F.delay {
+                                  val props =
+                                    n.asInstanceOf[js.Dictionary[js.Any]]
+                                  val value = valueFn.asInstanceOf[
+                                    (Any, Any, Any, Any) => Option[Any]
+                                  ](n, d, i, group)
+                                  value.fold(props -= name)(a =>
+                                    props += (name -> a.asInstanceOf[js.Any])
+                                  )
+                                  ()
+                                }
+                              }
+                            )
+                          )
+                        )
+                    }
+
                     case ClassedFn(names, value) => {
                       val fn =
                         value.asInstanceOf[(Any, Any, Any, Any) => Boolean]
@@ -701,10 +746,10 @@ object Selection {
                         Terminal(newGroups, parents.asInstanceOf[List[PN0]])
                       }
 
-                    case Call(f0) => {
-                      val f = f0.asInstanceOf[Any => F[Unit]]
-                      f(t) *> F
-                        .pure(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
+                    case Call(f) => {
+                      val f0 = f.asInstanceOf[Any => F[Unit]]
+                      val t0 = t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
+                      f0(t0).as(t0)
                     }
 
                     case Each(fn) => {
@@ -714,7 +759,12 @@ object Selection {
                             group.zipWithIndex.traverse_ { case (node, i) =>
                               F.whenA(node != null) {
                                 val data =
-                                  node.asInstanceOf[js.Dynamic].`__data__`
+                                  node
+                                    .asInstanceOf[js.Dictionary[Any]]
+                                    .get(
+                                      "__data__"
+                                    )
+                                    .getOrElse(null)
                                 val fn0 =
                                   fn.asInstanceOf[
                                     (Any, Any, Int, List[Any]) => F[
@@ -735,7 +785,10 @@ object Selection {
                             group.zipWithIndex.traverse { case (node, i) =>
                               if (node != null) {
                                 val data =
-                                  node.asInstanceOf[js.Dynamic].`__data__`
+                                  node
+                                    .asInstanceOf[js.Dictionary[Any]]
+                                    .get("__data__")
+                                    .getOrElse(null)
                                 val sel0 =
                                   selector
                                     .asInstanceOf[
@@ -745,10 +798,12 @@ object Selection {
                                     ]
                                 val newNode = sel0(node, data, i, group)
                                 newNode.flatMap { n0 =>
-                                  F.delay(
-                                    n0.asInstanceOf[js.Dynamic].`__data__` =
-                                      data
-                                  ) *> F.pure(n0)
+                                  F.delay {
+                                    n0.asInstanceOf[js.Dictionary[Any]](
+                                      "__data__"
+                                    ) = data
+                                    n0
+                                  }
                                 }
                               } else {
                                 F.pure(null.asInstanceOf[N0])
@@ -823,8 +878,8 @@ object Selection {
                                 child,
                                 eNode._next.asInstanceOf[dom.Node]
                               )
-                            child.asInstanceOf[js.Dynamic].`__data__` =
-                              eNode.data.asInstanceOf[js.Any]
+                            child.asInstanceOf[js.Dictionary[Any]]("__data__") =
+                              eNode.data
                             child
                           } else {
                             null
@@ -867,6 +922,11 @@ object Selection {
   private case class AttrFn[F[_], N, D, PN, PD](
       name: String,
       value: (N, D, Int, List[N]) => String
+  ) extends Action[F, N, D, PN, PD]
+
+  private case class Property[F[_], N, D, PN, PD](
+      name: String,
+      value: (N, D, Int, List[N]) => Option[Any]
   ) extends Action[F, N, D, PN, PD]
 
   private case class AttrTransitionFn[F[_], N, D, PN, PD](

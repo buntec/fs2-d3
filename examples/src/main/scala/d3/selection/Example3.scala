@@ -14,13 +14,14 @@ class Example3[F[_]](implicit F: Async[F]) {
       .selectAll[dom.Element, String]("span")
       .data(data)
       .join(_.append("p"))
-      .append { (_, d, _, _) =>
+      .append[F, dom.Element] { (_, d, _, _) =>
         F.delay {
           val node = dom.document.createElement("div")
           node.textContent = d
           node
         }
       }
+      .property("fooProp", (_, d, _, _) => Some(d))
       .compile
 
 }
