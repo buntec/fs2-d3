@@ -37,7 +37,7 @@ class Example1[F[_]](implicit F: Async[F]) {
         d3.select[F, dom.Element, Nothing]("#app")
           .select[dom.Element]("svg")
           .selectAll[dom.Element, String]("text")
-          .keyedData(data)(
+          .dataKeyed(data)(
             (_, d, _, _) => d,
             (_, d, _, _) => d
           )

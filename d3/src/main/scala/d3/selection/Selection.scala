@@ -47,16 +47,24 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   def data[D0](data: List[D0]): Selection[F, N, D0, PN, PD] =
     Continue(this, Data(data, None))
 
+  def dataKeyed[D0](
+      data: List[D0]
+  )( // curry for better type inference
+      nodeKey: (N, D, Int, List[N]) => String,
+      datumKey: (PN, D0, Int, List[D0]) => String
+  ): Selection[F, N, D0, PN, PD] =
+    Continue(this, Data(data, Some((nodeKey, datumKey))))
+
   def datum[D0](value: Option[D0]): Selection[F, N, D0, PN, PD] =
     Continue(
       this,
-      Property("__data__", (_: N, _: D, _: Int, _: List[N]) => value)
+      Property(DATA_KEY, (_: N, _: D, _: Int, _: List[N]) => value)
     )
 
   def datum[D0](
       value: (N, D, Int, List[N]) => Some[D0]
   ): Selection[F, N, D0, PN, PD] =
-    Continue(this, Property("__data__", value))
+    Continue(this, Property(DATA_KEY, value))
 
   def dispatch(
       tpe: String,
@@ -70,18 +78,18 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   ): Selection[F, N, D, PN, PD] =
     Continue(this, Dispatch(tpe, params))
 
-  def keyedData[D0](
-      data: List[D0]
-  )( // curry for better type inference
-      nodeKey: (N, D, Int, List[N]) => String,
-      datumKey: (PN, D0, Int, List[D0]) => String
-  ): Selection[F, N, D0, PN, PD] =
-    Continue(this, Data(data, Some((nodeKey, datumKey))))
-
   def each[F1[x] >: F[x]](
       fn: (N, D, Int, List[N]) => F1[Unit]
   ): Selection[F1, N, D, PN, PD] =
     Continue(this, Each(fn))
+
+  def filter(selector: String): Selection[F, N, D, PN, PD] =
+    Continue(this, Filter(selector))
+
+  def filter(
+      pred: (N, D, Int, List[N]) => Boolean
+  ): Selection[F, N, D, PN, PD] =
+    Continue(this, FilterFn(pred))
 
   def join[F1[x] >: F[x], N0, N1 >: N, D1 >: D, PN1 >: PN, PD1 >: PD](
       onEnter: Enter[F, N, D, PN, PD] => Selection[F1, N0, D1, PN1, PD1],
@@ -284,6 +292,42 @@ object Selection {
                   )}""".stripMargin
                 ) *> {
                   step match {
+                    case Filter(selector) =>
+                      log("Step=Filter") *> F.delay {
+                        val subgroups = groups.map { group =>
+                          group.filter { node =>
+                            (node != null) && node
+                              .asInstanceOf[dom.Element]
+                              .matches(selector)
+                          }
+                        }
+                        Terminal(subgroups, parents)
+                          .asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
+                      }
+                    case FilterFn(pred) =>
+                      log("Step=FilterFn") *> F.delay {
+                        val subgroups = groups.map { group =>
+                          group.zipWithIndex.filter { case (node, i) =>
+                            if (node != null) {
+                              false
+                            } else {
+                              val data = node
+                                .asInstanceOf[js.Dictionary[Any]]
+                                .get(DATA_KEY)
+                                .getOrElse(null)
+                              pred
+                                .asInstanceOf[(Any, Any, Any, Any) => Boolean](
+                                  node,
+                                  data,
+                                  i,
+                                  group
+                                )
+                            }
+                          }
+                        }
+                        Terminal(subgroups, parents)
+                          .asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
+                      }
                     case RemoveAfterTransition() =>
                       log("Step=RemoveAfterTransition") *>
                         transRef.get.flatMap { trans =>
@@ -486,7 +530,7 @@ object Selection {
                                   while (i < dataLength) {
                                     if (i < groupLength && nodes(i) != null) {
                                       nodes(i).asInstanceOf[js.Dictionary[Any]](
-                                        "__data__"
+                                        DATA_KEY
                                       ) = dataArr(i)
                                       updateGroup(i) = nodes(i)
                                     } else {
@@ -527,7 +571,7 @@ object Selection {
                                         node,
                                         node
                                           .asInstanceOf[js.Dictionary[Any]]
-                                          .get("__data__")
+                                          .get(DATA_KEY)
                                           .getOrElse(null),
                                         i,
                                         group
@@ -550,7 +594,7 @@ object Selection {
                                       val node = nodebyKeyValue(keyValue)
                                       updateGroup(i) = node
                                       node.asInstanceOf[js.Dictionary[Any]](
-                                        "__data__"
+                                        DATA_KEY
                                       ) = dataArr(i)
                                       nodebyKeyValue.remove(keyValue)
                                     } else {
@@ -801,9 +845,7 @@ object Selection {
                                 val data =
                                   node
                                     .asInstanceOf[js.Dictionary[Any]]
-                                    .get(
-                                      "__data__"
-                                    )
+                                    .get(DATA_KEY)
                                     .getOrElse(null)
                                 val fn0 =
                                   fn.asInstanceOf[
@@ -827,7 +869,7 @@ object Selection {
                                 val data =
                                   node
                                     .asInstanceOf[js.Dictionary[Any]]
-                                    .get("__data__")
+                                    .get(DATA_KEY)
                                     .getOrElse(null)
                                 val sel0 =
                                   selector
@@ -840,7 +882,7 @@ object Selection {
                                 newNode.flatMap { n0 =>
                                   F.delay {
                                     n0.asInstanceOf[js.Dictionary[Any]](
-                                      "__data__"
+                                      DATA_KEY
                                     ) = data
                                     n0
                                   }
@@ -918,7 +960,7 @@ object Selection {
                                 child,
                                 eNode._next.asInstanceOf[dom.Node]
                               )
-                            child.asInstanceOf[js.Dictionary[Any]]("__data__") =
+                            child.asInstanceOf[js.Dictionary[Any]](DATA_KEY) =
                               eNode.data
                             child
                           } else {
@@ -999,6 +1041,14 @@ object Selection {
 
   private case class Each[F[_], N, D, PN, PD](
       fn: (N, D, Int, List[N]) => F[Unit]
+  ) extends Action[F, N, D, PN, PD]
+
+  private case class Filter[F[_], N, D, PN, PD](
+      selector: String
+  ) extends Action[F, N, D, PN, PD]
+
+  private case class FilterFn[F[_], N, D, PN, PD](
+      fn: (N, D, Int, List[N]) => Boolean
   ) extends Action[F, N, D, PN, PD]
 
   private case class Call[F0[_], F[_], N, D, PN, PD](
