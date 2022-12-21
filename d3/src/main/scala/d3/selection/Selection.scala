@@ -132,6 +132,29 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   def selectAll[N0, D0](selector: String): Selection[F, N0, D0, N, D] =
     Continue(this, SelectAll(selector))
 
+  def sort[D1 >: D](implicit ord: Ordering[D1]): Selection[F, N, D1, PN, PD] =
+    Continue(this, Sort(ord.lt))
+
+  def sort(lt: (D, D) => Boolean): Selection[F, N, D, PN, PD] =
+    Continue(this, Sort(lt))
+
+  def style(
+      name: String,
+      value: Option[String],
+      priority: Boolean = false
+  ): Selection[F, N, D, PN, PD] =
+    Continue(
+      this,
+      StyleFn(name, (_: N, _: D, _: Int, _: List[N]) => value, priority)
+    )
+
+  def style(
+      name: String,
+      value: (N, D, Int, List[N]) => Option[String],
+      priority: Boolean
+  ): Selection[F, N, D, PN, PD] =
+    Continue(this, StyleFn(name, value, priority))
+
   def text(value: String): Selection[F, N, D, PN, PD] =
     Continue(this, TextFn((_: N, _: D, _: Int, _: List[N]) => value))
 
@@ -401,31 +424,52 @@ object Selection {
                     case Order() => {
                       log("Step=Order") *>
                         F.delay {
-                          groups.foreach {
-                            case group @ (_ :: tail) =>
-                              group.zip(tail).reverse.foreach {
-                                case (node, next) =>
-                                  if (
-                                    (next != null) && (node != null) && ((node
-                                      .asInstanceOf[dom.Node]
-                                      .compareDocumentPosition(
-                                        next.asInstanceOf[dom.Node]
-                                      ) ^ dom.Node.DOCUMENT_POSITION_FOLLOWING) != 0)
-                                  ) {
-                                    next
-                                      .asInstanceOf[dom.Node]
-                                      .parentNode
-                                      .insertBefore(
-                                        node.asInstanceOf[dom.Node],
-                                        next.asInstanceOf[dom.Node]
-                                      )
-                                  }
-                              }
-                            case _ => ()
-                          }
-                        } *> F
-                          .pure(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
+                          groups
+                            .map(
+                              _.filter(_ != null).asInstanceOf[List[dom.Node]]
+                            )
+                            .foreach {
+                              case group @ (_ :: tail) =>
+                                group.zip(tail).reverse.foreach {
+                                  case (node, next) =>
+                                    if (
+                                      (node
+                                        .compareDocumentPosition(
+                                          next
+                                        ) ^ dom.Node.DOCUMENT_POSITION_FOLLOWING) != 0
+                                    ) {
+                                      next.parentNode.insertBefore(node, next)
+                                    }
+                                }
+                              case _ => ()
+                            }
+                        }.as(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
                     }
+
+                    case Sort(lt) =>
+                      log("Step=Sort") *> F
+                        .delay {
+                          val sortedGroups =
+                            groups.map { group =>
+                              group
+                                .filter(_ != null)
+                                .map { node =>
+                                  val data = node
+                                    .asInstanceOf[js.Dictionary[Any]]
+                                    .get(DATA_KEY)
+                                    .getOrElse(null)
+                                  (node, data)
+                                }
+                                .filter(_._2 != null)
+                                .sortWith { case ((_, d1), (_, d2)) =>
+                                  lt.asInstanceOf[(Any, Any) => Boolean](d1, d2)
+                                }
+                                .map(_._1)
+                            }
+                          Terminal(sortedGroups, parents)
+                            .asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
+                        }
+                        .flatMap(t => F.defer(go(Continue(t, Order()))))
 
                     case Join(onEnter, onUpdate, onExit) =>
                       log("Step=Join") *> {
@@ -698,6 +742,35 @@ object Selection {
                                   val elm = n.asInstanceOf[dom.Element]
                                   elm.setAttribute(name, fn(n, d, i, group))
                                 }
+                              }
+                            )
+                          )
+                        )
+                    }
+
+                    case StyleFn(name, valueFn, priority) => {
+                      log("Step=StyleFn") *>
+                        F.defer(
+                          go(
+                            Continue(
+                              t,
+                              Each { (n: N, d: D, i: Int, group: List[N]) =>
+                                F.delay {
+                                  val elm = n.asInstanceOf[dom.HTMLElement]
+                                  valueFn.asInstanceOf[
+                                    (Any, Any, Any, Any) => Option[String]
+                                  ](n, d, i, group) match {
+                                    case None => elm.style.removeProperty(name)
+                                    case Some(value) => {
+                                      if (priority) {
+                                        elm.style
+                                          .setProperty(name, value, "important")
+                                      } else {
+                                        elm.style.setProperty(name, value)
+                                      }
+                                    }
+                                  }
+                                }.void
                               }
                             )
                           )
@@ -1006,16 +1079,6 @@ object Selection {
       value: (N, D, Int, List[N]) => String
   ) extends Action[F, N, D, PN, PD]
 
-  private case class Property[F[_], N, D, PN, PD](
-      name: String,
-      value: (N, D, Int, List[N]) => Option[Any]
-  ) extends Action[F, N, D, PN, PD]
-
-  private case class Dispatch[F[_], N, D, PN, PD](
-      tpe: String,
-      params: (N, D, Int, List[N]) => CustomEventParams
-  ) extends Action[F, N, D, PN, PD]
-
   private case class AttrTransitionFn[F[_], N, D, PN, PD](
       name: String,
       value: (N, D, Int, List[N]) => String,
@@ -1030,8 +1093,8 @@ object Selection {
       fn: (N, D, Int, List[N]) => F1[N1]
   ) extends Action[F, N, D, PN, PD]
 
-  private case class TextFn[F[_], N, D, PN, PD](
-      fn: (N, D, Int, List[N]) => String
+  private case class Call[F0[_], F[_], N, D, PN, PD](
+      fn: Selection[F0, N, D, PN, PD] => F[Unit]
   ) extends Action[F, N, D, PN, PD]
 
   private case class ClassedFn[F[_], N, D, PN, PD](
@@ -1039,21 +1102,10 @@ object Selection {
       value: (N, D, Int, List[N]) => Boolean
   ) extends Action[F, N, D, PN, PD]
 
-  private case class Each[F[_], N, D, PN, PD](
-      fn: (N, D, Int, List[N]) => F[Unit]
-  ) extends Action[F, N, D, PN, PD]
-
-  private case class Filter[F[_], N, D, PN, PD](
-      selector: String
-  ) extends Action[F, N, D, PN, PD]
-
-  private case class FilterFn[F[_], N, D, PN, PD](
-      fn: (N, D, Int, List[N]) => Boolean
-  ) extends Action[F, N, D, PN, PD]
-
-  private case class Call[F0[_], F[_], N, D, PN, PD](
-      fn: Selection[F0, N, D, PN, PD] => F[Unit]
-  ) extends Action[F, N, D, PN, PD]
+  private case class Continue[F[_], N, D, PN, PD, N0, D0, PN0, PD0](
+      current: Selection[F, N, D, PN, PD],
+      step: Action[F, N, D, PN, PD]
+  ) extends Selection[F, N0, D0, PN0, PD0]
 
   private case class Data[F[_], N, D0, D, PN, PD](
       data: List[D],
@@ -1062,11 +1114,26 @@ object Selection {
       ]
   ) extends Action[F, N, D0, PN, PD]
 
-  private case class Select[F[_], N, D, PN, PD](selector: String)
-      extends Action[F, N, D, PN, PD]
+  private case class Dispatch[F[_], N, D, PN, PD](
+      tpe: String,
+      params: (N, D, Int, List[N]) => CustomEventParams
+  ) extends Action[F, N, D, PN, PD]
 
-  private case class SelectFn[F[_], N, D, PN, PD, N0](
-      selector: (N, D, Int, List[N]) => F[N0]
+  private case class Each[F[_], N, D, PN, PD](
+      fn: (N, D, Int, List[N]) => F[Unit]
+  ) extends Action[F, N, D, PN, PD]
+
+  private case class EnterAppend[F[_], N, D, PN, PD, N0, D0, PN0, PD0](
+      enter: Enter[F, N, D, PN, PD],
+      name: String
+  ) extends Selection[F, N0, D0, PN0, PD0]
+
+  private case class Filter[F[_], N, D, PN, PD](
+      selector: String
+  ) extends Action[F, N, D, PN, PD]
+
+  private case class FilterFn[F[_], N, D, PN, PD](
+      fn: (N, D, Int, List[N]) => Boolean
   ) extends Action[F, N, D, PN, PD]
 
   private case class Join[F[_], F1[x] >: F[
@@ -1077,7 +1144,15 @@ object Selection {
       onExit: Selection[F, N, D, PN, PD] => Selection[F1, N1, D1, PN1, PD1]
   ) extends Action[F, N, D, PN, PD]
 
+  private case class NewTransition[F[_], N, D, PN, PD]()
+      extends Action[F, N, D, PN, PD]
+
   private case class Order[F[_], N, D, PN, PD]() extends Action[F, N, D, PN, PD]
+
+  private case class Property[F[_], N, D, PN, PD](
+      name: String,
+      value: (N, D, Int, List[N]) => Option[Any]
+  ) extends Action[F, N, D, PN, PD]
 
   private case class Remove[F[_], N, D, PN, PD]()
       extends Action[F, N, D, PN, PD]
@@ -1085,8 +1160,12 @@ object Selection {
   private case class RemoveAfterTransition[F[_], N, D, PN, PD]()
       extends Action[F, N, D, PN, PD]
 
-  private case class NewTransition[F[_], N, D, PN, PD]()
+  private case class Select[F[_], N, D, PN, PD](selector: String)
       extends Action[F, N, D, PN, PD]
+
+  private case class SelectFn[F[_], N, D, PN, PD, N0](
+      selector: (N, D, Int, List[N]) => F[N0]
+  ) extends Action[F, N, D, PN, PD]
 
   private case class SelectAll[F[_], N, D, PN, PD](selector: String)
       extends Action[F, N, D, PN, PD]
@@ -1095,6 +1174,15 @@ object Selection {
       selector: (N, D, Int, List[N]) => N0
   ) extends Action[F, N0, D, PN, PD]
 
+  private case class Sort[F[_], N, D, PN, PD](lt: (D, D) => Boolean)
+      extends Action[F, N, D, PN, PD]
+
+  private case class StyleFn[F[_], N, D, PN, PD](
+      name: String,
+      fn: (N, D, Int, List[N]) => Option[String],
+      priority: Boolean
+  ) extends Action[F, N, D, PN, PD]
+
   private case class Terminal[F[_], N, D, PN, PD](
       groups: List[List[N]],
       parents: List[PN],
@@ -1102,15 +1190,9 @@ object Selection {
       exit: Option[List[List[N]]] = None
   ) extends Selection[F, N, D, PN, PD]
 
-  private case class Continue[F[_], N, D, PN, PD, N0, D0, PN0, PD0](
-      current: Selection[F, N, D, PN, PD],
-      step: Action[F, N, D, PN, PD]
-  ) extends Selection[F, N0, D0, PN0, PD0]
-
-  private case class EnterAppend[F[_], N, D, PN, PD, N0, D0, PN0, PD0](
-      enter: Enter[F, N, D, PN, PD],
-      name: String
-  ) extends Selection[F, N0, D0, PN0, PD0]
+  private case class TextFn[F[_], N, D, PN, PD](
+      fn: (N, D, Int, List[N]) => String
+  ) extends Action[F, N, D, PN, PD]
 
   private[selection] class EnterNode[D, PN](
       val parent: PN,

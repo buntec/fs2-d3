@@ -1,4 +1,6 @@
 Global / onChangedBuildSource := ReloadOnSourceChanges
+Global / semanticdbEnabled := true // enable SemanticDB
+Global / semanticdbVersion := scalafixSemanticdb.revision // only required for Scala 2.x
 
 ThisBuild / tlBaseVersion := "0.1"
 
@@ -12,9 +14,6 @@ ThisBuild / tlSonatypeUseLegacyHost := false
 ThisBuild / developers := List(
   tlGitHubDev("buntec", "Christoph Bunte")
 )
-
-ThisBuild / semanticdbEnabled := true // enable SemanticDB
-ThisBuild / semanticdbVersion := scalafixSemanticdb.revision // only required for Scala 2.x
 
 ThisBuild / githubWorkflowBuildMatrixAdditions +=
   "browser" -> List("Chrome", "Firefox")
