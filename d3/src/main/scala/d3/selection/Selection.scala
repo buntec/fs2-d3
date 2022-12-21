@@ -58,6 +58,18 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   ): Selection[F, N, D0, PN, PD] =
     Continue(this, Property("__data__", value))
 
+  def dispatch(
+      tpe: String,
+      params: CustomEventParams
+  ): Selection[F, N, D, PN, PD] =
+    Continue(this, Dispatch(tpe, (_: N, _: D, _: Int, _: List[N]) => params))
+
+  def dispatch(
+      tpe: String,
+      params: (N, D, Int, List[N]) => CustomEventParams
+  ): Selection[F, N, D, PN, PD] =
+    Continue(this, Dispatch(tpe, params))
+
   def keyedData[D0](
       data: List[D0]
   )( // curry for better type inference
@@ -648,6 +660,34 @@ object Selection {
                         )
                     }
 
+                    case Dispatch(tpe, paramsFn) => {
+                      log("Step=Dispatch") *>
+                        F.defer(
+                          go(
+                            Continue(
+                              t,
+                              Each { (n: N, d: D, i: Int, group: List[N]) =>
+                                F.delay {
+                                  val params = paramsFn.asInstanceOf[
+                                    (Any, Any, Any, Any) => CustomEventParams
+                                  ](n, d, i, group)
+                                  val init = new dom.CustomEventInit {}
+                                  init.bubbles = params.bubbles
+                                  init.cancelable = params.cancelable
+                                  params.detail.fold(()) { detail =>
+                                    init.detail = detail
+                                  }
+                                  val event = new dom.CustomEvent(tpe, init)
+                                  val node = n.asInstanceOf[dom.Node]
+                                  node.dispatchEvent(event)
+                                  ()
+                                }
+                              }
+                            )
+                          )
+                        )
+                    }
+
                     case Property(name, valueFn) => {
                       log("Step=AttrFn") *>
                         F.defer(
@@ -927,6 +967,11 @@ object Selection {
   private case class Property[F[_], N, D, PN, PD](
       name: String,
       value: (N, D, Int, List[N]) => Option[Any]
+  ) extends Action[F, N, D, PN, PD]
+
+  private case class Dispatch[F[_], N, D, PN, PD](
+      tpe: String,
+      params: (N, D, Int, List[N]) => CustomEventParams
   ) extends Action[F, N, D, PN, PD]
 
   private case class AttrTransitionFn[F[_], N, D, PN, PD](
