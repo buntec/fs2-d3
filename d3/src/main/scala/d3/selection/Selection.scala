@@ -891,18 +891,6 @@ object Selection {
                           )
                         )
 
-                    case Select(selector) =>
-                      log("Step=Select") *> F.delay {
-                        val newGroups = groups.map { group =>
-                          group.map(
-                            _.asInstanceOf[dom.Element]
-                              .querySelector(selector)
-                              .asInstanceOf[N0]
-                          )
-                        }
-                        Terminal(newGroups, parents.asInstanceOf[List[PN0]])
-                      }
-
                     case Call(f) => {
                       val f0 = f.asInstanceOf[Any => F[Unit]]
                       val t0 = t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
@@ -933,6 +921,22 @@ object Selection {
                           .pure(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
                     }
 
+                    case Select(selector) =>
+                      log("Step=Select") *> F.defer {
+                        go(
+                          Continue(
+                            t,
+                            SelectFn { (n: N0, _: D0, _: Int, _: List[N0]) =>
+                              F.delay {
+                                n.asInstanceOf[dom.Element]
+                                  .querySelector(selector)
+                                  .asInstanceOf[N0]
+                              }
+                            }
+                          )
+                        )
+                      }
+
                     case SelectFn(selector) => {
                       log("Step=SelectFn") *>
                         groups
@@ -944,19 +948,18 @@ object Selection {
                                     .asInstanceOf[js.Dictionary[Any]]
                                     .get(DATA_KEY)
                                     .getOrElse(null)
-                                val sel0 =
+                                val newNode =
                                   selector
                                     .asInstanceOf[
-                                      (Any, Any, Int, List[Any]) => F[
-                                        N0
-                                      ]
-                                    ]
-                                val newNode = sel0(node, data, i, group)
+                                      (Any, Any, Int, List[Any]) => F[N0]
+                                    ](node, data, i, group)
                                 newNode.flatMap { n0 =>
                                   F.delay {
-                                    n0.asInstanceOf[js.Dictionary[Any]](
-                                      DATA_KEY
-                                    ) = data
+                                    if (n0 != null) {
+                                      n0.asInstanceOf[js.Dictionary[Any]](
+                                        DATA_KEY
+                                      ) = data
+                                    }
                                     n0
                                   }
                                 }
@@ -973,42 +976,47 @@ object Selection {
                           }
                     }
 
-                    case SelectAll(sel) => {
-                      log("selectAll") *>
-                        F.delay {
-                          val (newGroups, newParents) =
-                            groups.foldLeft(
-                              (List.empty[List[Any]], List.empty[Any])
-                            ) { case ((sg, ps), group) =>
-                              val (a, b) =
-                                group.foldLeft(
-                                  (List.empty[List[Any]], List.empty[Any])
-                                ) { case ((sg, ps), node) =>
-                                  if (node != null) {
-                                    (
-                                      node
-                                        .asInstanceOf[dom.Element]
-                                        .querySelectorAll(sel)
-                                        .toList
-                                        .asInstanceOf[List[Any]] :: sg,
-                                      node :: ps
-                                    )
-                                  } else {
-                                    (sg, ps)
-                                  }
-                                }
+                    case SelectAll(sel) =>
+                      log("Step=SelectAll") *> F.defer {
+                        go(
+                          Continue(
+                            t,
+                            SelectAllFn((n: N0, _: D0, _: Int, _: List[N0]) =>
+                              F.delay {
+                                n.asInstanceOf[dom.Element]
+                                  .querySelectorAll(sel)
+                                  .toList
+                              }
+                            )
+                          )
+                        )
+                      }
 
-                              (a ++ sg.reverse, b ++ ps.reverse)
-                            }
+                    case SelectAllFn(sel) =>
+                      log("Step=SelectAllFn") *> groups
+                        .traverse { group =>
+                          group.filter(_ != null).zipWithIndex.traverse {
+                            case (node, i) =>
+                              val data =
+                                node
+                                  .asInstanceOf[js.Dictionary[Any]]
+                                  .get(DATA_KEY)
+                                  .getOrElse(null)
+                              sel.asInstanceOf[(Any, Any, Any, Any) => F[
+                                List[N0]
+                              ]](node, data, i, group)
+                          }
+                        }
+                        .map(_.flatten)
+                        .map { newGroups =>
+                          val newParents = groups.map { group =>
+                            group.filter(_ != null)
+                          }.flatten
                           Terminal(
                             newGroups.asInstanceOf[List[List[N0]]],
                             newParents.asInstanceOf[List[PN0]]
                           )
                         }
-
-                    }
-
-                    case SelectAllFn(_) => throw new NotImplementedError("boom")
 
                   }
                 }
@@ -1170,9 +1178,9 @@ object Selection {
   private case class SelectAll[F[_], N, D, PN, PD](selector: String)
       extends Action[F, N, D, PN, PD]
 
-  private case class SelectAllFn[F[_], N, D, PN, PD, N0](
-      selector: (N, D, Int, List[N]) => N0
-  ) extends Action[F, N0, D, PN, PD]
+  private case class SelectAllFn[F[_], N, N0, D, PN, PD](
+      selector: (N, D, Int, List[N]) => F[List[N0]]
+  ) extends Action[F, N, D, PN, PD]
 
   private case class Sort[F[_], N, D, PN, PD](lt: (D, D) => Boolean)
       extends Action[F, N, D, PN, PD]

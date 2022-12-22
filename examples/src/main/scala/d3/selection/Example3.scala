@@ -1,7 +1,6 @@
 package d3.selection.examples
 
 import cats.effect.kernel.Async
-
 import org.scalajs.dom
 
 class Example3[F[_]](implicit F: Async[F]) {
