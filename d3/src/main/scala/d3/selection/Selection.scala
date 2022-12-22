@@ -2,6 +2,7 @@ package d3.selection
 
 import cats.effect.implicits._
 import cats.effect.kernel.Async
+import cats.effect.std.Dispatcher
 import cats.syntax.all._
 import d3.transition.TransitionManager
 import org.scalajs.dom
@@ -121,6 +122,14 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
 
   def join(name: String): Selection[F, N, D, PN, PD] =
     join(enter => enter.append(name))
+
+  def on[F1[x] >: F[x]](
+      typenames: String,
+      listener: Option[(N, dom.Event, D) => F1[Unit]],
+      options: Option[dom.EventListenerOptions],
+      dispatcher: Dispatcher[F1]
+  ): Selection[F1, N, D, PN, PD] =
+    Continue(this, On(typenames, listener, options, dispatcher))
 
   def order: Selection[F, N, D, PN, PD] =
     Continue(this, Order())
@@ -447,6 +456,80 @@ object Selection {
                             )
                           )
                         )
+
+                    case On(typenames0, listener, options, dispatcher) =>
+                      val typenames = parseListenerTypenames(typenames0)
+                      log("Step=On") *> F.defer {
+                        go(
+                          Continue(
+                            t,
+                            Each { (n: N, d: D, _: Int, _: List[N]) =>
+                              typenames.traverse_ { typename =>
+                                F.delay {
+                                  listener match {
+                                    case None =>
+                                      val dict =
+                                        n.asInstanceOf[js.Dictionary[Any]]
+                                      val on = dict
+                                        .get(LISTENER_KEY)
+                                        .map(
+                                          _.asInstanceOf[List[
+                                            WrappedListener
+                                          ]]
+                                        )
+                                        .getOrElse(Nil)
+                                      on.filter(l =>
+                                        l.tpe == typename.tpe && l.name == typename.name
+                                      ).foreach { l =>
+                                        n.asInstanceOf[dom.Node]
+                                          .removeEventListener(
+                                            l.tpe,
+                                            l.listener,
+                                            l.options
+                                          )
+                                      }
+                                      dict(LISTENER_KEY) = on.filterNot(l =>
+                                        l.tpe == typename.tpe && l.name == typename.name
+                                      )
+
+                                    case Some(listener) => {
+                                      val dict =
+                                        n.asInstanceOf[js.Dictionary[Any]]
+                                      val on = dict
+                                        .get(LISTENER_KEY)
+                                        .map(
+                                          _.asInstanceOf[List[WrappedListener]]
+                                        )
+                                        .getOrElse(Nil)
+                                      on.filter(l =>
+                                        l.tpe == typename.tpe && l.name == typename.name
+                                      ).foreach { l =>
+                                        n.asInstanceOf[dom.Node]
+                                          .removeEventListener(
+                                            l.tpe,
+                                            l.listener,
+                                            l.options
+                                          )
+                                        n.asInstanceOf[dom.Node]
+                                          .addEventListener(
+                                            l.tpe,
+                                            (ev: dom.Event) =>
+                                              dispatcher.unsafeRunAndForget(
+                                                listener.asInstanceOf[
+                                                  (Any, Any, Any) => F[Unit]
+                                                ](n, ev, d)
+                                              ),
+                                            options.getOrElse(null)
+                                          )
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          )
+                        )
+                      }
 
                     case Order() => {
                       log("Step=Order") *>
@@ -1157,13 +1240,6 @@ object Selection {
       step: Action[F, N, D, PN, PD]
   ) extends Selection[F, N0, D0, PN0, PD0]
 
-  private case class Data[F[_], N, D0, D, PN, PD](
-      data: List[D],
-      keys: Option[
-        ((N, D0, Int, List[N]) => String, (PN, D, Int, List[D]) => String)
-      ]
-  ) extends Action[F, N, D0, PN, PD]
-
   private case class DataFn[F[_], N, D0, D, PN, PD](
       data: (PN, PD, Int, List[PN]) => List[D],
       keys: Option[
@@ -1203,6 +1279,13 @@ object Selection {
 
   private case class NewTransition[F[_], N, D, PN, PD]()
       extends Action[F, N, D, PN, PD]
+
+  private case class On[F[_], N, D, PN, PD](
+      typenames: String,
+      listener: Option[(N, dom.Event, D) => F[Unit]],
+      options: Option[dom.EventListenerOptions],
+      dispatcher: Dispatcher[F]
+  ) extends Action[F, N, D, PN, PD]
 
   private case class Order[F[_], N, D, PN, PD]() extends Action[F, N, D, PN, PD]
 
@@ -1255,6 +1338,29 @@ object Selection {
       val parent: PN,
       val data: D,
       var _next: Any
+  )
+
+  private def parseListenerTypenames(
+      typenames: String
+  ): List[ListenerTypeAndName] = {
+    typenames.trim().split("""^|\s+""").toList.map { t =>
+      val i = t.indexOf(".")
+      val (t0, name) = if (i >= 0) {
+        (t.take(i), t.drop(i + 1))
+      } else {
+        (t, "")
+      }
+      ListenerTypeAndName(t0, name)
+    }
+  }
+
+  private case class ListenerTypeAndName(tpe: String, name: String)
+  private case class WrappedListener(
+      tpe: String,
+      name: String,
+      value: Any,
+      listener: js.Function1[dom.Event, Unit],
+      options: dom.EventListenerOptions
   )
 
 }
