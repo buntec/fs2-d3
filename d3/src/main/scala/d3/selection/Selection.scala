@@ -45,7 +45,12 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
     Continue(this, ClassedFn(names, value))
 
   def data[D0](data: List[D0]): Selection[F, N, D0, PN, PD] =
-    Continue(this, Data(data, None))
+    Continue(this, DataFn((_: PN, _: PD, _: Int, _: List[PN]) => data, None))
+
+  def data[D0](
+      data: (PN, PD, Int, List[PN]) => List[D0]
+  ): Selection[F, N, D0, PN, PD] =
+    Continue(this, DataFn(data, None))
 
   def dataKeyed[D0](
       data: List[D0]
@@ -53,7 +58,21 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
       nodeKey: (N, D, Int, List[N]) => String,
       datumKey: (PN, D0, Int, List[D0]) => String
   ): Selection[F, N, D0, PN, PD] =
-    Continue(this, Data(data, Some((nodeKey, datumKey))))
+    Continue(
+      this,
+      DataFn(
+        (_: PN, _: PD, _: Int, _: List[PN]) => data,
+        Some((nodeKey, datumKey))
+      )
+    )
+
+  def dataKeyed[D0](
+      data: (PN, PD, Int, List[PN]) => List[D0]
+  )( // curry for better type inference
+      nodeKey: (N, D, Int, List[N]) => String,
+      datumKey: (PN, D0, Int, List[D0]) => String
+  ): Selection[F, N, D0, PN, PD] =
+    Continue(this, DataFn(data, Some((nodeKey, datumKey))))
 
   def datum[D0](value: Option[D0]): Selection[F, N, D0, PN, PD] =
     Continue(
@@ -173,10 +192,18 @@ object Selection {
   ): Selection[F, N, D, dom.HTMLElement, Unit] =
     Select[F, N, D, dom.HTMLElement, Unit](selector)
 
+  def select[F[_], N, D](node: N): Selection[F, N, D, dom.HTMLElement, Unit] =
+    Terminal(List(List(node)), List(null))
+
   def selectAll[F[_], N, D](
       selector: String
   ): Selection[F, N, D, dom.HTMLElement, Unit] =
     SelectAll[F, N, D, dom.HTMLElement, Unit](selector)
+
+  def selectAll[F[_], N, D](
+      nodes: List[N]
+  ): Selection[F, N, D, dom.HTMLElement, Unit] =
+    Terminal(List(nodes), List(null))
 
   implicit class SelectionOps[F[_], N, D, PN, PD](
       private val sel: Selection[F, N, D, PN, PD]
@@ -541,14 +568,13 @@ object Selection {
                               )
                                 .asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
                             }.flatMap { terminal =>
-                              // go(terminal)
                               go(Continue(terminal, Order()))
                             }
                         }
 
                       }
 
-                    case Data(data, keyOpt) =>
+                    case DataFn(dataFn, keyOpt) =>
                       val update = Array.fill(groups.length)(Array.empty[Any])
                       val enter =
                         Array
@@ -558,6 +584,23 @@ object Selection {
                         F.delay {
                           (groups.zip(parents).zipWithIndex).map {
                             case ((group, parent), j) =>
+                              val parentData = if (parent != null) {
+                                parent
+                                  .asInstanceOf[js.Dictionary[Any]]
+                                  .get(DATA_KEY)
+                                  .getOrElse(null)
+                              } else {
+                                null
+                              }
+                              val data = dataFn
+                                .asInstanceOf[(Any, Any, Any, Any) => List[
+                                  Any
+                                ]](
+                                  parent,
+                                  parentData,
+                                  j,
+                                  parents
+                                )
                               val groupLength = group.length
                               val dataLength = data.length
                               val enterGroup =
@@ -583,7 +626,6 @@ object Selection {
                                     }
                                     i += 1
                                   }
-
                                   while (i < groupLength) {
                                     if (nodes(i) != null) {
                                       exitGroup(i) = nodes(i)
@@ -1117,6 +1159,13 @@ object Selection {
 
   private case class Data[F[_], N, D0, D, PN, PD](
       data: List[D],
+      keys: Option[
+        ((N, D0, Int, List[N]) => String, (PN, D, Int, List[D]) => String)
+      ]
+  ) extends Action[F, N, D0, PN, PD]
+
+  private case class DataFn[F[_], N, D0, D, PN, PD](
+      data: (PN, PD, Int, List[PN]) => List[D],
       keys: Option[
         ((N, D0, Int, List[N]) => String, (PN, D, Int, List[D]) => String)
       ]
