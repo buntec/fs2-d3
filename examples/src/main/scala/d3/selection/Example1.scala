@@ -31,6 +31,7 @@ class Example1[F[_]](implicit F: Async[F]) {
       .attr("height", height)
       .attr("viewBox", s"0 0 $width $height")
       .compile
+      .drain
 
     val transDuration = 750.millis
 
@@ -69,6 +70,7 @@ class Example1[F[_]](implicit F: Async[F]) {
               .remove
           )
           .compile
+          .drain
       }
       .compile
       .drain
@@ -90,6 +92,7 @@ class Example1[F[_]](implicit F: Async[F]) {
         .attr("width", "300")
         .attr("height", "300")
         .compile
+        .drain
       _ <- d3
         .select("#demo2")
         .append("circle")
@@ -98,11 +101,13 @@ class Example1[F[_]](implicit F: Async[F]) {
         .attr("cy", "150")
         .attr("r", s"$radius")
         .compile
+        .drain
       _ <- d3
         .select("#demo2")
         .append("g")
         .attr("transform", "translate(150, 150)")
         .compile
+        .drain
     } yield ()
 
     val loop = Stream
@@ -133,6 +138,7 @@ class Example1[F[_]](implicit F: Async[F]) {
             0.seconds
           )
           .compile
+          .drain
 
       }
       .compile

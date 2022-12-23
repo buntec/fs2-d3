@@ -22,5 +22,6 @@ class Example3[F[_]](implicit F: Async[F]) {
       }
       .property("fooProp", (_, d, _, _) => Some(d))
       .compile
+      .drain
 
 }

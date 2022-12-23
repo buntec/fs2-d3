@@ -22,6 +22,7 @@ class Example2[F[_]](implicit F: Async[F]) {
         .attr("width", "800")
         .attr("height", "300")
         .compile
+        .drain
       _ <- d3
         .select("svg")
         .append("circle")
@@ -30,11 +31,13 @@ class Example2[F[_]](implicit F: Async[F]) {
         .attr("cy", "150")
         .attr("r", s"$radius")
         .compile
+        .drain
       _ <- d3
         .select("svg")
         .append("g")
         .attr("transform", "translate(150, 150)")
         .compile
+        .drain
     } yield ()
 
     val loop = Stream
@@ -65,6 +68,7 @@ class Example2[F[_]](implicit F: Async[F]) {
             0.seconds
           )
           .compile
+          .drain
 
       }
       .compile

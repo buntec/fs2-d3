@@ -45,6 +45,9 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   ): Selection[F, N, D, PN, PD] =
     Continue(this, ClassedFn(names, value))
 
+  def compile: CompileOps[F, N, D, PN, PD] =
+    new CompileOps(this)
+
   def data[D0](data: List[D0]): DataOps[F, N, D0, PN, PD] =
     new DataOps(
       Continue(this, DataFn((_: PN, _: PD, _: Int, _: List[PN]) => data, None))
@@ -206,11 +209,68 @@ object Selection {
   ): Selection[F, N, D, dom.HTMLElement, Unit] =
     Terminal(List(nodes), List(null))
 
-  implicit class SelectionOps[F[_], N, D, PN, PD](
+  final class CompileOps[+F[_], +N, +D, +PN, +PD] private[selection] (
       private val sel: Selection[F, N, D, PN, PD]
-  ) extends AnyVal {
+  ) {
 
-    def compile(implicit F: Async[F]): F[Unit] = Selection.compile(sel)
+    def attr[F2[x] >: F[x]](name: String)(implicit
+        F: Async[F2]
+    ): F2[Option[String]] =
+      node[F2, N].map(_.map(_.asInstanceOf[dom.Element].getAttribute(name)))
+
+    def datum[F2[x] >: F[x], D2 >: D](implicit F: Async[F2]): F2[Option[D2]] =
+      node[F2, N].map(
+        _.flatMap(_.asInstanceOf[js.Dictionary[D2]].get(DATA_KEY))
+      )
+
+    def drain[F2[x] >: F[x]](implicit F: Async[F2]): F2[Unit] =
+      Selection.run[F2, N, D, PN, PD](sel).void
+
+    def empty[F2[x] >: F[x]](implicit F: Async[F2]): F2[Boolean] =
+      Selection
+        .run[F2, N, D, PN, PD](sel)
+        .map(_.groups.flatten.filter(_ != null).isEmpty)
+
+    def html[F2[x] >: F[x]](implicit
+        F: Async[F2]
+    ): F2[Option[String]] =
+      node[F2, N].map(_.map(_.asInstanceOf[dom.Element].innerHTML))
+
+    def node[F2[x] >: F[x], N2 >: N](implicit F: Async[F2]): F2[Option[N2]] =
+      Selection
+        .run[F2, N, D, PN, PD](sel)
+        .map(_.groups.flatten.find(_ != null))
+
+    def nodes[F2[x] >: F[x], N2 >: N](implicit F: Async[F2]): F2[List[N2]] =
+      Selection
+        .run[F2, N, D, PN, PD](sel)
+        .map(_.groups.flatten.filter(_ != null))
+
+    def size[F2[x] >: F[x]](implicit F: Async[F2]): F2[Int] =
+      nodes[F2, N].map(_.length)
+
+    def style[F2[x] >: F[x]](name: String)(implicit
+        F: Async[F2]
+    ): F2[Option[String]] = node[F2, N].map {
+      _.map { n =>
+        val s = n.asInstanceOf[dom.HTMLElement].style.getPropertyValue(name)
+        if (s.nonEmpty) {
+          s
+        } else {
+          window
+            .defaultView(n.asInstanceOf[dom.Node])
+            .asInstanceOf[js.Dynamic]
+            .getComputedStyle(n.asInstanceOf[js.Any], null)
+            .getPropertyValue(name)
+            .asInstanceOf[String]
+        }
+      }
+    }
+
+    def text[F2[x] >: F[x]](implicit
+        F: Async[F2]
+    ): F2[Option[String]] =
+      node[F2, N].map(_.map(_.asInstanceOf[dom.Node].textContent))
 
   }
 
@@ -244,6 +304,8 @@ object Selection {
   ) {
 
     def selection: Selection[F, N, D, PN, PD] = sel
+
+    def compile: CompileOps[F, N, D, PN, PD] = sel.compile
 
     def transition: TransitionOps[F, N, D, PN, PD] =
       new TransitionOps(Continue(sel, NewTransition()))
@@ -295,15 +357,6 @@ object Selection {
         transition: TransitionOps[F, N, D, PN, PD]
     ): Selection[F, N, D, PN, PD] = transition.selection
 
-    implicit class TransitionOpsOps[F[_], N, D, PN, PD](
-        private val t: TransitionOps[F, N, D, PN, PD]
-    ) extends AnyVal {
-
-      def compile(implicit F: Async[F]): F[Unit] =
-        Selection.compile(t.selection)
-
-    }
-
   }
 
   sealed abstract class Enter[+F[_], +N, +D, +PN, +PD] {
@@ -323,147 +376,91 @@ object Selection {
 
   }
 
-  def compile[F[_], N, D, PN, PD](
+  private def run[F[_], N, D, PN, PD](
       selection: Selection[F, N, D, PN, PD]
-  )(implicit F: Async[F]): F[Unit] = {
+  )(implicit F: Async[F]): F[Terminal[F, N, D, PN, PD]] = {
 
     def log(msg: String): F[Unit] =
       F.whenA(d3.Configuration.logging)(F.delay(println(msg)))
 
-    def run[N0, D0, PN0, PD0](
-        selection: Selection[F, N0, D0, PN0, PD0]
-    ): F[Terminal[F, N0, D0, PN0, PD0]] = {
-
-      TransitionManager[F].use { tm =>
-        tm.next.flatMap(F.ref(_)).flatMap { transRef =>
-          def go[N0, D0, PN0, PD0](
-              s: Selection[F, N0, D0, PN0, PD0]
-          ): F[Terminal[F, N0, D0, PN0, PD0]] = {
-            s match {
-              case Select(selector) =>
-                log("Select") *>
-                  F.delay(dom.document.querySelector(selector)).map { elm =>
-                    val groups = List(List(elm.asInstanceOf[N0]))
-                    val parents =
-                      List(dom.document.documentElement.asInstanceOf[PN0])
-                    Terminal(groups, parents)
-                  }
-              case SelectAll(selector) =>
-                log("SelectAll") *>
-                  F.delay(dom.document.querySelectorAll(selector)).map {
-                    nodes =>
-                      val groups = List(nodes.toList.asInstanceOf[List[N0]])
-                      val parents =
-                        List(dom.document.documentElement.asInstanceOf[PN0])
-                      Terminal(groups, parents)
-                  }
-              case Continue(t @ Terminal(groups, parents, enter, exit), step) =>
-                log(
-                  s"""Continue=(Terminal, step)
+    TransitionManager[F].use { tm =>
+      tm.next.flatMap(F.ref(_)).flatMap { transRef =>
+        def go[N0, D0, PN0, PD0](
+            s: Selection[F, N0, D0, PN0, PD0]
+        ): F[Terminal[F, N0, D0, PN0, PD0]] = {
+          s match {
+            case Select(selector) =>
+              log("Select") *>
+                F.delay(dom.document.querySelector(selector)).map { elm =>
+                  val groups = List(List(elm.asInstanceOf[N0]))
+                  val parents =
+                    List(dom.document.documentElement.asInstanceOf[PN0])
+                  Terminal(groups, parents)
+                }
+            case SelectAll(selector) =>
+              log("SelectAll") *>
+                F.delay(dom.document.querySelectorAll(selector)).map { nodes =>
+                  val groups = List(nodes.toList.asInstanceOf[List[N0]])
+                  val parents =
+                    List(dom.document.documentElement.asInstanceOf[PN0])
+                  Terminal(groups, parents)
+                }
+            case Continue(t @ Terminal(groups, parents, enter, exit), step) =>
+              log(
+                s"""Continue=(Terminal, step)
             |groups(${groups.length}/${groups.map(_.length)}}): ${groups
-                    .map(group => group.mkString(", "))
-                    .mkString("\n")}
+                  .map(group => group.mkString(", "))
+                  .mkString("\n")}
             |parents(${parents.length}): ${parents.mkString(
-                    ", "
-                  )}""".stripMargin
-                ) *> {
-                  step match {
-                    case Filter(selector) =>
-                      log("Step=Filter") *> F.delay {
-                        val subgroups = groups.map { group =>
-                          group.filter { node =>
-                            (node != null) && node
-                              .asInstanceOf[dom.Element]
-                              .matches(selector)
+                  ", "
+                )}""".stripMargin
+              ) *> {
+                step match {
+                  case Filter(selector) =>
+                    log("Step=Filter") *> F.delay {
+                      val subgroups = groups.map { group =>
+                        group.filter { node =>
+                          (node != null) && node
+                            .asInstanceOf[dom.Element]
+                            .matches(selector)
+                        }
+                      }
+                      Terminal(subgroups, parents)
+                        .asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
+                    }
+                  case FilterFn(pred) =>
+                    log("Step=FilterFn") *> F.delay {
+                      val subgroups = groups.map { group =>
+                        group.zipWithIndex.filter { case (node, i) =>
+                          if (node != null) {
+                            false
+                          } else {
+                            val data = node
+                              .asInstanceOf[js.Dictionary[Any]]
+                              .get(DATA_KEY)
+                              .getOrElse(null)
+                            pred
+                              .asInstanceOf[(Any, Any, Any, Any) => Boolean](
+                                node,
+                                data,
+                                i,
+                                group
+                              )
                           }
                         }
-                        Terminal(subgroups, parents)
-                          .asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
                       }
-                    case FilterFn(pred) =>
-                      log("Step=FilterFn") *> F.delay {
-                        val subgroups = groups.map { group =>
-                          group.zipWithIndex.filter { case (node, i) =>
-                            if (node != null) {
-                              false
-                            } else {
-                              val data = node
-                                .asInstanceOf[js.Dictionary[Any]]
-                                .get(DATA_KEY)
-                                .getOrElse(null)
-                              pred
-                                .asInstanceOf[(Any, Any, Any, Any) => Boolean](
-                                  node,
-                                  data,
-                                  i,
-                                  group
-                                )
-                            }
-                          }
-                        }
-                        Terminal(subgroups, parents)
-                          .asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
-                      }
-                    case RemoveAfterTransition() =>
-                      log("Step=RemoveAfterTransition") *>
-                        transRef.get.flatMap { trans =>
-                          F.defer(
-                            go(
-                              Continue(
-                                t,
-                                Each { (n: N, _: D, _: Int, _: List[N]) =>
-                                  val removeNode = F.delay {
-                                    val node = n.asInstanceOf[dom.Node]
-                                    val parent = node.parentNode
-                                    if (parent != null) {
-                                      parent.removeChild(node)
-                                    }
-                                    ()
-                                  }
-                                  trans.onComplete(removeNode)
-                                }
-                              )
-                            )
-                          )
-                        }
-                    case AttrTransitionFn(name, value, duration, delay) =>
-                      val fn =
-                        value.asInstanceOf[(Any, Any, Any, Any) => String]
-                      log("Step=AttrTransitionFn") *>
-                        transRef.get.flatMap { trans =>
-                          F.defer(
-                            go(
-                              Continue(
-                                t,
-                                Each { (n: N, d: D, i: Int, group: List[N]) =>
-                                  trans.attr(
-                                    n.asInstanceOf[dom.Element],
-                                    name,
-                                    fn(n, d, i, group),
-                                    duration,
-                                    delay
-                                  )
-                                }
-                              )
-                            )
-                          )
-                        }
-
-                    case NewTransition() =>
-                      log("Step=NewTransition") *>
-                        tm.next.flatMap { newTrans =>
-                          transRef.set(newTrans)
-                        } *>
-                        F.pure(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
-
-                    case Remove() =>
-                      log("Step=Remove") *>
+                      Terminal(subgroups, parents)
+                        .asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
+                    }
+                  case RemoveAfterTransition() =>
+                    log("Step=RemoveAfterTransition") *>
+                      transRef.get.flatMap { trans =>
                         F.defer(
                           go(
                             Continue(
                               t,
                               Each { (n: N, _: D, _: Int, _: List[N]) =>
-                                F.delay {
+                                val removeNode = F.delay {
                                   val node = n.asInstanceOf[dom.Node]
                                   val parent = node.parentNode
                                   if (parent != null) {
@@ -471,788 +468,836 @@ object Selection {
                                   }
                                   ()
                                 }
+                                trans.onComplete(removeNode)
                               }
                             )
                           )
                         )
+                      }
+                  case AttrTransitionFn(name, value, duration, delay) =>
+                    val fn =
+                      value.asInstanceOf[(Any, Any, Any, Any) => String]
+                    log("Step=AttrTransitionFn") *>
+                      transRef.get.flatMap { trans =>
+                        F.defer(
+                          go(
+                            Continue(
+                              t,
+                              Each { (n: N, d: D, i: Int, group: List[N]) =>
+                                trans.attr(
+                                  n.asInstanceOf[dom.Element],
+                                  name,
+                                  fn(n, d, i, group),
+                                  duration,
+                                  delay
+                                )
+                              }
+                            )
+                          )
+                        )
+                      }
 
-                    case On(typenames0, listener0, options0, dispatcher) =>
-                      val typenames = parseListenerTypenames(typenames0)
-                      val options = options0.getOrElse(null)
-                      log("Step=On") *> F.defer {
+                  case NewTransition() =>
+                    log("Step=NewTransition") *>
+                      tm.next.flatMap { newTrans =>
+                        transRef.set(newTrans)
+                      } *>
+                      F.pure(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
+
+                  case Remove() =>
+                    log("Step=Remove") *>
+                      F.defer(
                         go(
                           Continue(
                             t,
-                            Each { (n: N, d: D, _: Int, _: List[N]) =>
-                              typenames.traverse_ { typename =>
-                                F.delay {
-                                  listener0 match {
-                                    case None =>
-                                      val dict =
-                                        n.asInstanceOf[js.Dictionary[List[
-                                          WrappedListener
-                                        ]]]
+                            Each { (n: N, _: D, _: Int, _: List[N]) =>
+                              F.delay {
+                                val node = n.asInstanceOf[dom.Node]
+                                val parent = node.parentNode
+                                if (parent != null) {
+                                  parent.removeChild(node)
+                                }
+                                ()
+                              }
+                            }
+                          )
+                        )
+                      )
 
-                                      val on = dict
-                                        .get(LISTENER_KEY)
-                                        .getOrElse(Nil)
+                  case On(typenames0, listener0, options0, dispatcher) =>
+                    val typenames = parseListenerTypenames(typenames0)
+                    val options = options0.getOrElse(null)
+                    log("Step=On") *> F.defer {
+                      go(
+                        Continue(
+                          t,
+                          Each { (n: N, d: D, _: Int, _: List[N]) =>
+                            typenames.traverse_ { typename =>
+                              F.delay {
+                                listener0 match {
+                                  case None =>
+                                    val dict =
+                                      n.asInstanceOf[js.Dictionary[List[
+                                        WrappedListener
+                                      ]]]
 
-                                      on.filter(l =>
+                                    val on = dict
+                                      .get(LISTENER_KEY)
+                                      .getOrElse(Nil)
+
+                                    on.filter(l =>
+                                      l.tpe == typename.tpe && l.name == typename.name
+                                    ).foreach { l =>
+                                      n.asInstanceOf[dom.Node]
+                                        .removeEventListener(
+                                          l.tpe,
+                                          l.listener,
+                                          l.options
+                                        )
+                                    }
+
+                                    dict(LISTENER_KEY) = on.filterNot(l =>
+                                      l.tpe == typename.tpe && l.name == typename.name
+                                    )
+
+                                  case Some(listener1) => {
+                                    val listener
+                                        : js.Function1[dom.Event, Unit] =
+                                      (ev: dom.Event) =>
+                                        dispatcher.unsafeRunAndForget(
+                                          listener1.asInstanceOf[
+                                            (Any, Any, Any) => F[Unit]
+                                          ](n, ev, d)
+                                        )
+
+                                    val dict =
+                                      n.asInstanceOf[js.Dictionary[List[
+                                        WrappedListener
+                                      ]]]
+
+                                    val on = dict
+                                      .get(LISTENER_KEY)
+                                      .getOrElse(Nil)
+
+                                    val on2 = on.map { l =>
+                                      if (
                                         l.tpe == typename.tpe && l.name == typename.name
-                                      ).foreach { l =>
+                                      ) {
                                         n.asInstanceOf[dom.Node]
                                           .removeEventListener(
                                             l.tpe,
                                             l.listener,
                                             l.options
                                           )
-                                      }
-
-                                      dict(LISTENER_KEY) = on.filterNot(l =>
-                                        l.tpe == typename.tpe && l.name == typename.name
-                                      )
-
-                                    case Some(listener1) => {
-                                      val listener
-                                          : js.Function1[dom.Event, Unit] =
-                                        (ev: dom.Event) =>
-                                          dispatcher.unsafeRunAndForget(
-                                            listener1.asInstanceOf[
-                                              (Any, Any, Any) => F[Unit]
-                                            ](n, ev, d)
+                                        n.asInstanceOf[dom.Node]
+                                          .addEventListener(
+                                            l.tpe,
+                                            listener,
+                                            options
                                           )
-
-                                      val dict =
-                                        n.asInstanceOf[js.Dictionary[List[
-                                          WrappedListener
-                                        ]]]
-
-                                      val on = dict
-                                        .get(LISTENER_KEY)
-                                        .getOrElse(Nil)
-
-                                      val on2 = on.map { l =>
-                                        if (
-                                          l.tpe == typename.tpe && l.name == typename.name
-                                        ) {
-                                          n.asInstanceOf[dom.Node]
-                                            .removeEventListener(
-                                              l.tpe,
-                                              l.listener,
-                                              l.options
-                                            )
-                                          n.asInstanceOf[dom.Node]
-                                            .addEventListener(
-                                              l.tpe,
-                                              listener,
-                                              options
-                                            )
-                                          l.copy(
-                                            listener = listener,
-                                            options = options,
-                                            value = listener0
-                                          )
-                                        } else {
-                                          l
-                                        }
-                                      }
-
-                                      val wl = WrappedListener(
-                                        typename.tpe,
-                                        typename.name,
-                                        listener0,
-                                        listener,
-                                        options
-                                      )
-
-                                      n.asInstanceOf[dom.Node]
-                                        .addEventListener(
-                                          wl.tpe,
-                                          wl.listener,
-                                          wl.options
+                                        l.copy(
+                                          listener = listener,
+                                          options = options,
+                                          value = listener0
                                         )
-
-                                      dict(LISTENER_KEY) = wl :: on2
-
+                                      } else {
+                                        l
+                                      }
                                     }
+
+                                    val wl = WrappedListener(
+                                      typename.tpe,
+                                      typename.name,
+                                      listener0,
+                                      listener,
+                                      options
+                                    )
+
+                                    n.asInstanceOf[dom.Node]
+                                      .addEventListener(
+                                        wl.tpe,
+                                        wl.listener,
+                                        wl.options
+                                      )
+
+                                    dict(LISTENER_KEY) = wl :: on2
+
                                   }
                                 }
                               }
                             }
-                          )
+                          }
                         )
-                      }
-
-                    case Order() => {
-                      log("Step=Order") *>
-                        F.delay {
-                          groups
-                            .map(
-                              _.filter(_ != null).asInstanceOf[List[dom.Node]]
-                            )
-                            .foreach {
-                              case group @ (_ :: tail) =>
-                                group.zip(tail).reverse.foreach {
-                                  case (node, next) =>
-                                    if (
-                                      (node
-                                        .compareDocumentPosition(
-                                          next
-                                        ) ^ dom.Node.DOCUMENT_POSITION_FOLLOWING) != 0
-                                    ) {
-                                      next.parentNode.insertBefore(node, next)
-                                    }
-                                }
-                              case _ => ()
-                            }
-                        }.as(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
+                      )
                     }
 
-                    case Sort(lt) =>
-                      log("Step=Sort") *> F
-                        .delay {
-                          val sortedGroups =
-                            groups.map { group =>
-                              group
-                                .filter(_ != null)
-                                .map { node =>
-                                  val data = node
-                                    .asInstanceOf[js.Dictionary[Any]]
-                                    .get(DATA_KEY)
-                                    .getOrElse(null)
-                                  (node, data)
-                                }
-                                .filter(_._2 != null)
-                                .sortWith { case ((_, d1), (_, d2)) =>
-                                  lt.asInstanceOf[(Any, Any) => Boolean](d1, d2)
-                                }
-                                .map(_._1)
-                            }
-                          Terminal(sortedGroups, parents)
-                            .asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
-                        }
-                        .flatMap(t => F.defer(go(Continue(t, Order()))))
-
-                    case Join(onEnter, onUpdate, onExit) =>
-                      log("Step=Join") *> {
-                        val enterSection = Enter.nodes(enter.get)
-
-                        val s1 =
-                          onEnter
-                            .asInstanceOf[
-                              Any => Selection[F, N0, D0, PN0, PD0]
-                            ](
-                              enterSection.asInstanceOf[Any]
-                            )
-
-                        val s2 =
-                          onUpdate
-                            .asInstanceOf[
-                              Any => Selection[F, N0, D0, PN0, PD0]
-                            ](
-                              t.asInstanceOf[Any]
-                            )
-
-                        val doExit = onExit
-                          .asInstanceOf[Any => Selection[F, N0, D0, PN0, PD0]](
-                            Terminal(exit.get, parents).asInstanceOf[Any]
+                  case Order() => {
+                    log("Step=Order") *>
+                      F.delay {
+                        groups
+                          .map(
+                            _.filter(_ != null).asInstanceOf[List[dom.Node]]
                           )
-                          .compile
-
-                        F.defer((run(s1), run(s2), doExit).parTupled).flatMap {
-                          case (
-                                Terminal(groups0, parents, _, _),
-                                Terminal(groups1, _, _, _),
-                                _
-                              ) =>
-                            F.delay {
-                              val groups0Arr = groups0.toArray
-                              val groups1Arr = groups1.toArray
-                              val m0 = groups0Arr.length
-                              val m1 = groups1Arr.length
-                              val m = math.min(m0, m1)
-                              val merges = new Array[Array[Any]](m0)
-                              var j = 0
-                              while (j < m) {
-                                val group0 = groups0Arr(j)
-                                val group1 = groups1Arr(j)
-                                val n = group0.length
-                                merges(j) = new Array[Any](n)
-                                val merge = merges(j)
-                                var i = 0
-                                while (i < n) {
-                                  if (group0(i) != null) {
-                                    merge(i) = group0(i)
-                                  } else {
-                                    merge(i) = group1(i)
+                          .foreach {
+                            case group @ (_ :: tail) =>
+                              group.zip(tail).reverse.foreach {
+                                case (node, next) =>
+                                  if (
+                                    (node
+                                      .compareDocumentPosition(
+                                        next
+                                      ) ^ dom.Node.DOCUMENT_POSITION_FOLLOWING) != 0
+                                  ) {
+                                    next.parentNode.insertBefore(node, next)
                                   }
-                                  i += 1
-                                }
-                                j += 1
                               }
-                              while (j < m0) {
-                                merges(j) = groups0Arr(j).toArray
-                                j += 1
-                              }
-                              Terminal(
-                                merges
-                                  .map(_.toList)
-                                  .toList
-                                  .asInstanceOf[List[List[N0]]],
-                                parents
-                              )
-                                .asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
-                            }.flatMap { terminal =>
-                              go(Continue(terminal, Order()))
-                            }
-                        }
+                            case _ => ()
+                          }
+                      }.as(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
+                  }
 
-                      }
-
-                    case DataFn(dataFn, keyOpt) =>
-                      val update = Array.fill(groups.length)(Array.empty[Any])
-                      val enter =
-                        Array
-                          .fill(groups.length)(Array.empty[EnterNode[Any, Any]])
-                      val exit = Array.fill(groups.length)(Array.empty[Any])
-                      log("Step=Data") *>
-                        F.delay {
-                          (groups.zip(parents).zipWithIndex).map {
-                            case ((group, parent), j) =>
-                              val parentData = if (parent != null) {
-                                parent
+                  case Sort(lt) =>
+                    log("Step=Sort") *> F
+                      .delay {
+                        val sortedGroups =
+                          groups.map { group =>
+                            group
+                              .filter(_ != null)
+                              .map { node =>
+                                val data = node
                                   .asInstanceOf[js.Dictionary[Any]]
                                   .get(DATA_KEY)
                                   .getOrElse(null)
-                              } else {
-                                null
+                                (node, data)
                               }
-                              val data = dataFn
-                                .asInstanceOf[(Any, Any, Any, Any) => List[
-                                  Any
-                                ]](
-                                  parent,
-                                  parentData,
-                                  j,
-                                  parents
-                                )
-                              val groupLength = group.length
-                              val dataLength = data.length
-                              val enterGroup =
-                                new Array[EnterNode[Any, Any]](dataLength)
-                              val updateGroup = new Array[Any](dataLength)
-                              val exitGroup = new Array[Any](groupLength)
-
-                              val nodes = group.toArray
-                              val dataArr = data.toArray
-
-                              keyOpt match {
-                                case None =>
-                                  var i = 0
-                                  while (i < dataLength) {
-                                    if (i < groupLength && nodes(i) != null) {
-                                      nodes(i).asInstanceOf[js.Dictionary[Any]](
-                                        DATA_KEY
-                                      ) = dataArr(i)
-                                      updateGroup(i) = nodes(i)
-                                    } else {
-                                      enterGroup(i) =
-                                        new EnterNode(parent, data(i), null)
-                                    }
-                                    i += 1
-                                  }
-                                  while (i < groupLength) {
-                                    if (nodes(i) != null) {
-                                      exitGroup(i) = nodes(i)
-                                    }
-                                    i += 1
-                                  }
-                                case Some((nodeKey, datumKey)) =>
-                                  val nKey =
-                                    nodeKey
-                                      .asInstanceOf[
-                                        (Any, Any, Any, Any) => String
-                                      ]
-                                  val dKey =
-                                    datumKey
-                                      .asInstanceOf[
-                                        (Any, Any, Any, Any) => String
-                                      ]
-
-                                  val nodebyKeyValue =
-                                    collection.mutable.Map.empty[String, Any]
-
-                                  val keyValues = new Array[String](groupLength)
-
-                                  var i = 0
-                                  while (i < groupLength) {
-                                    if (i < groupLength && nodes(i) != null) {
-                                      val node = nodes(i)
-                                      val keyValue = nKey(
-                                        node,
-                                        node
-                                          .asInstanceOf[js.Dictionary[Any]]
-                                          .get(DATA_KEY)
-                                          .getOrElse(null),
-                                        i,
-                                        group
-                                      )
-                                      keyValues(i) = keyValue
-                                      if (nodebyKeyValue.contains(keyValue)) {
-                                        exitGroup(i) = node
-                                      } else {
-                                        nodebyKeyValue.addOne(keyValue -> node)
-                                      }
-                                    }
-                                    i += 1
-                                  }
-
-                                  i = 0
-                                  while (i < dataLength) {
-                                    val keyValue =
-                                      dKey(parent, data(i), i, data)
-                                    if (nodebyKeyValue.contains(keyValue)) {
-                                      val node = nodebyKeyValue(keyValue)
-                                      updateGroup(i) = node
-                                      node.asInstanceOf[js.Dictionary[Any]](
-                                        DATA_KEY
-                                      ) = dataArr(i)
-                                      nodebyKeyValue.remove(keyValue)
-                                    } else {
-                                      enterGroup(i) =
-                                        new EnterNode(parent, data(i), null)
-                                    }
-                                    i += 1
-                                  }
-
-                                  i = 0
-                                  while (i < groupLength) {
-                                    if (
-                                      (nodes(i) != null) && nodebyKeyValue
-                                        .contains(
-                                          keyValues(i)
-                                        ) && (nodebyKeyValue(
-                                        keyValues(i)
-                                      ) == nodes(i))
-                                    ) {
-                                      exitGroup(i) = nodes(i)
-                                    }
-                                    i += 1
-                                  }
-
+                              .filter(_._2 != null)
+                              .sortWith { case ((_, d1), (_, d2)) =>
+                                lt.asInstanceOf[(Any, Any) => Boolean](d1, d2)
                               }
-
-                              var i0 = 0
-                              var i1 = 0
-                              while (i0 < dataLength) {
-                                if (enterGroup(i0) != null) {
-                                  if (i0 >= i1) i1 = i0 + 1
-                                  while (
-                                    i1 < dataLength && updateGroup(
-                                      i1
-                                    ) == null && i1 + 1 < dataLength
-                                  ) {
-                                    i1 += 1
-                                  }
-                                  enterGroup(i0)._next =
-                                    if (i1 <= dataLength) updateGroup(i1 - 1)
-                                    else null
-                                }
-                                i0 += 1
-                              }
-
-                              update(j) = updateGroup
-                              enter(j) = enterGroup
-                              exit(j) = exitGroup
+                              .map(_._1)
                           }
-                        } *> log(s"update=${update}") *> F.delay {
-                          Terminal(
-                            update
+                        Terminal(sortedGroups, parents)
+                          .asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
+                      }
+                      .flatMap(t => F.defer(go(Continue(t, Order()))))
+
+                  case Join(onEnter, onUpdate, onExit) =>
+                    log("Step=Join") *> {
+                      val enterSection = Enter.nodes(enter.get)
+
+                      val s1 =
+                        onEnter
+                          .asInstanceOf[
+                            Any => Selection[F, N0, D0, PN0, PD0]
+                          ](
+                            enterSection.asInstanceOf[Any]
+                          )
+
+                      val s2 =
+                        onUpdate
+                          .asInstanceOf[
+                            Any => Selection[F, N0, D0, PN0, PD0]
+                          ](
+                            t.asInstanceOf[Any]
+                          )
+
+                      val doExit = onExit
+                        .asInstanceOf[Any => Selection[F, N0, D0, PN0, PD0]](
+                          Terminal(exit.get, parents).asInstanceOf[Any]
+                        )
+                        .compile
+                        .drain
+
+                      F.defer((run(s1), run(s2), doExit).parTupled).flatMap {
+                        case (
+                              Terminal(groups0, parents, _, _),
+                              Terminal(groups1, _, _, _),
+                              _
+                            ) =>
+                          F.delay {
+                            val groups0Arr = groups0.toArray
+                            val groups1Arr = groups1.toArray
+                            val m0 = groups0Arr.length
+                            val m1 = groups1Arr.length
+                            val m = math.min(m0, m1)
+                            val merges = new Array[Array[Any]](m0)
+                            var j = 0
+                            while (j < m) {
+                              val group0 = groups0Arr(j)
+                              val group1 = groups1Arr(j)
+                              val n = group0.length
+                              merges(j) = new Array[Any](n)
+                              val merge = merges(j)
+                              var i = 0
+                              while (i < n) {
+                                if (group0(i) != null) {
+                                  merge(i) = group0(i)
+                                } else {
+                                  merge(i) = group1(i)
+                                }
+                                i += 1
+                              }
+                              j += 1
+                            }
+                            while (j < m0) {
+                              merges(j) = groups0Arr(j).toArray
+                              j += 1
+                            }
+                            Terminal(
+                              merges
+                                .map(_.toList)
+                                .toList
+                                .asInstanceOf[List[List[N0]]],
+                              parents
+                            )
+                              .asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
+                          }.flatMap { terminal =>
+                            go(Continue(terminal, Order()))
+                          }
+                      }
+
+                    }
+
+                  case DataFn(dataFn, keyOpt) =>
+                    val update = Array.fill(groups.length)(Array.empty[Any])
+                    val enter =
+                      Array
+                        .fill(groups.length)(Array.empty[EnterNode[Any, Any]])
+                    val exit = Array.fill(groups.length)(Array.empty[Any])
+                    log("Step=Data") *>
+                      F.delay {
+                        (groups.zip(parents).zipWithIndex).map {
+                          case ((group, parent), j) =>
+                            val parentData = if (parent != null) {
+                              parent
+                                .asInstanceOf[js.Dictionary[Any]]
+                                .get(DATA_KEY)
+                                .getOrElse(null)
+                            } else {
+                              null
+                            }
+                            val data = dataFn
+                              .asInstanceOf[(Any, Any, Any, Any) => List[
+                                Any
+                              ]](
+                                parent,
+                                parentData,
+                                j,
+                                parents
+                              )
+                            val groupLength = group.length
+                            val dataLength = data.length
+                            val enterGroup =
+                              new Array[EnterNode[Any, Any]](dataLength)
+                            val updateGroup = new Array[Any](dataLength)
+                            val exitGroup = new Array[Any](groupLength)
+
+                            val nodes = group.toArray
+                            val dataArr = data.toArray
+
+                            keyOpt match {
+                              case None =>
+                                var i = 0
+                                while (i < dataLength) {
+                                  if (i < groupLength && nodes(i) != null) {
+                                    nodes(i).asInstanceOf[js.Dictionary[Any]](
+                                      DATA_KEY
+                                    ) = dataArr(i)
+                                    updateGroup(i) = nodes(i)
+                                  } else {
+                                    enterGroup(i) =
+                                      new EnterNode(parent, data(i), null)
+                                  }
+                                  i += 1
+                                }
+                                while (i < groupLength) {
+                                  if (nodes(i) != null) {
+                                    exitGroup(i) = nodes(i)
+                                  }
+                                  i += 1
+                                }
+                              case Some((nodeKey, datumKey)) =>
+                                val nKey =
+                                  nodeKey
+                                    .asInstanceOf[
+                                      (Any, Any, Any, Any) => String
+                                    ]
+                                val dKey =
+                                  datumKey
+                                    .asInstanceOf[
+                                      (Any, Any, Any, Any) => String
+                                    ]
+
+                                val nodebyKeyValue =
+                                  collection.mutable.Map.empty[String, Any]
+
+                                val keyValues = new Array[String](groupLength)
+
+                                var i = 0
+                                while (i < groupLength) {
+                                  if (i < groupLength && nodes(i) != null) {
+                                    val node = nodes(i)
+                                    val keyValue = nKey(
+                                      node,
+                                      node
+                                        .asInstanceOf[js.Dictionary[Any]]
+                                        .get(DATA_KEY)
+                                        .getOrElse(null),
+                                      i,
+                                      group
+                                    )
+                                    keyValues(i) = keyValue
+                                    if (nodebyKeyValue.contains(keyValue)) {
+                                      exitGroup(i) = node
+                                    } else {
+                                      nodebyKeyValue.addOne(keyValue -> node)
+                                    }
+                                  }
+                                  i += 1
+                                }
+
+                                i = 0
+                                while (i < dataLength) {
+                                  val keyValue =
+                                    dKey(parent, data(i), i, data)
+                                  if (nodebyKeyValue.contains(keyValue)) {
+                                    val node = nodebyKeyValue(keyValue)
+                                    updateGroup(i) = node
+                                    node.asInstanceOf[js.Dictionary[Any]](
+                                      DATA_KEY
+                                    ) = dataArr(i)
+                                    nodebyKeyValue.remove(keyValue)
+                                  } else {
+                                    enterGroup(i) =
+                                      new EnterNode(parent, data(i), null)
+                                  }
+                                  i += 1
+                                }
+
+                                i = 0
+                                while (i < groupLength) {
+                                  if (
+                                    (nodes(i) != null) && nodebyKeyValue
+                                      .contains(
+                                        keyValues(i)
+                                      ) && (nodebyKeyValue(
+                                      keyValues(i)
+                                    ) == nodes(i))
+                                  ) {
+                                    exitGroup(i) = nodes(i)
+                                  }
+                                  i += 1
+                                }
+
+                            }
+
+                            var i0 = 0
+                            var i1 = 0
+                            while (i0 < dataLength) {
+                              if (enterGroup(i0) != null) {
+                                if (i0 >= i1) i1 = i0 + 1
+                                while (
+                                  i1 < dataLength && updateGroup(
+                                    i1
+                                  ) == null && i1 + 1 < dataLength
+                                ) {
+                                  i1 += 1
+                                }
+                                enterGroup(i0)._next =
+                                  if (i1 <= dataLength) updateGroup(i1 - 1)
+                                  else null
+                              }
+                              i0 += 1
+                            }
+
+                            update(j) = updateGroup
+                            enter(j) = enterGroup
+                            exit(j) = exitGroup
+                        }
+                      } *> log(s"update=${update}") *> F.delay {
+                        Terminal(
+                          update
+                            .map(_.toList)
+                            .toList
+                            .asInstanceOf[List[List[N0]]],
+                          parents.asInstanceOf[List[PN0]],
+                          enter = Some(
+                            enter
                               .map(_.toList)
                               .toList
-                              .asInstanceOf[List[List[N0]]],
-                            parents.asInstanceOf[List[PN0]],
-                            enter = Some(
-                              enter
-                                .map(_.toList)
-                                .toList
-                                .asInstanceOf[List[List[EnterNode[D0, PN0]]]]
-                            ),
-                            exit = Some(
-                              exit
-                                .map(_.toList)
-                                .toList
-                                .asInstanceOf[List[List[N0]]]
-                            )
+                              .asInstanceOf[List[List[EnterNode[D0, PN0]]]]
+                          ),
+                          exit = Some(
+                            exit
+                              .map(_.toList)
+                              .toList
+                              .asInstanceOf[List[List[N0]]]
                           )
-                        }
+                        )
+                      }
 
-                    case TextFn(value) => {
-                      val fn =
-                        value.asInstanceOf[(Any, Any, Any, Any) => String]
-                      log("Step=TextFn") *>
-                        F.defer(
-                          go(
-                            Continue(
-                              t,
-                              Each { (n: N, d: D, i: Int, group: List[N]) =>
-                                F.delay(
-                                  n.asInstanceOf[dom.Node].textContent =
-                                    fn(n, d, i, group)
+                  case TextFn(value) => {
+                    val fn =
+                      value.asInstanceOf[(Any, Any, Any, Any) => String]
+                    log("Step=TextFn") *>
+                      F.defer(
+                        go(
+                          Continue(
+                            t,
+                            Each { (n: N, d: D, i: Int, group: List[N]) =>
+                              F.delay(
+                                n.asInstanceOf[dom.Node].textContent =
+                                  fn(n, d, i, group)
+                              )
+                            }
+                          )
+                        )
+                      )
+                  }
+
+                  case AttrFn(name, value) => {
+                    val fn =
+                      value.asInstanceOf[(Any, Any, Any, Any) => String]
+                    log("Step=AttrFn") *>
+                      F.defer(
+                        go(
+                          Continue(
+                            t,
+                            Each { (n: N, d: D, i: Int, group: List[N]) =>
+                              F.delay {
+                                val elm = n.asInstanceOf[dom.Element]
+                                elm.setAttribute(name, fn(n, d, i, group))
+                              }
+                            }
+                          )
+                        )
+                      )
+                  }
+
+                  case StyleFn(name, valueFn, priority) => {
+                    log("Step=StyleFn") *>
+                      F.defer(
+                        go(
+                          Continue(
+                            t,
+                            Each { (n: N, d: D, i: Int, group: List[N]) =>
+                              F.delay {
+                                val elm = n.asInstanceOf[dom.HTMLElement]
+                                valueFn.asInstanceOf[
+                                  (Any, Any, Any, Any) => Option[String]
+                                ](n, d, i, group) match {
+                                  case None => elm.style.removeProperty(name)
+                                  case Some(value) => {
+                                    if (priority) {
+                                      elm.style
+                                        .setProperty(name, value, "important")
+                                    } else {
+                                      elm.style.setProperty(name, value)
+                                    }
+                                  }
+                                }
+                              }.void
+                            }
+                          )
+                        )
+                      )
+                  }
+
+                  case Dispatch(tpe, paramsFn) => {
+                    log("Step=Dispatch") *>
+                      F.defer(
+                        go(
+                          Continue(
+                            t,
+                            Each { (n: N, d: D, i: Int, group: List[N]) =>
+                              F.delay {
+                                val params = paramsFn.asInstanceOf[
+                                  (Any, Any, Any, Any) => CustomEventParams
+                                ](n, d, i, group)
+                                val init = new dom.CustomEventInit {}
+                                init.bubbles = params.bubbles
+                                init.cancelable = params.cancelable
+                                params.detail.fold(()) { detail =>
+                                  init.detail = detail
+                                }
+                                val event = new dom.CustomEvent(tpe, init)
+                                val node = n.asInstanceOf[dom.Node]
+                                node.dispatchEvent(event)
+                                ()
+                              }
+                            }
+                          )
+                        )
+                      )
+                  }
+
+                  case Property(name, valueFn) => {
+                    log("Step=AttrFn") *>
+                      F.defer(
+                        go(
+                          Continue(
+                            t,
+                            Each { (n: N, d: D, i: Int, group: List[N]) =>
+                              F.delay {
+                                val props =
+                                  n.asInstanceOf[js.Dictionary[js.Any]]
+                                val value = valueFn.asInstanceOf[
+                                  (Any, Any, Any, Any) => Option[Any]
+                                ](n, d, i, group)
+                                value.fold(props -= name)(a =>
+                                  props += (name -> a.asInstanceOf[js.Any])
                                 )
-                              }
-                            )
-                          )
-                        )
-                    }
-
-                    case AttrFn(name, value) => {
-                      val fn =
-                        value.asInstanceOf[(Any, Any, Any, Any) => String]
-                      log("Step=AttrFn") *>
-                        F.defer(
-                          go(
-                            Continue(
-                              t,
-                              Each { (n: N, d: D, i: Int, group: List[N]) =>
-                                F.delay {
-                                  val elm = n.asInstanceOf[dom.Element]
-                                  elm.setAttribute(name, fn(n, d, i, group))
-                                }
-                              }
-                            )
-                          )
-                        )
-                    }
-
-                    case StyleFn(name, valueFn, priority) => {
-                      log("Step=StyleFn") *>
-                        F.defer(
-                          go(
-                            Continue(
-                              t,
-                              Each { (n: N, d: D, i: Int, group: List[N]) =>
-                                F.delay {
-                                  val elm = n.asInstanceOf[dom.HTMLElement]
-                                  valueFn.asInstanceOf[
-                                    (Any, Any, Any, Any) => Option[String]
-                                  ](n, d, i, group) match {
-                                    case None => elm.style.removeProperty(name)
-                                    case Some(value) => {
-                                      if (priority) {
-                                        elm.style
-                                          .setProperty(name, value, "important")
-                                      } else {
-                                        elm.style.setProperty(name, value)
-                                      }
-                                    }
-                                  }
-                                }.void
-                              }
-                            )
-                          )
-                        )
-                    }
-
-                    case Dispatch(tpe, paramsFn) => {
-                      log("Step=Dispatch") *>
-                        F.defer(
-                          go(
-                            Continue(
-                              t,
-                              Each { (n: N, d: D, i: Int, group: List[N]) =>
-                                F.delay {
-                                  val params = paramsFn.asInstanceOf[
-                                    (Any, Any, Any, Any) => CustomEventParams
-                                  ](n, d, i, group)
-                                  val init = new dom.CustomEventInit {}
-                                  init.bubbles = params.bubbles
-                                  init.cancelable = params.cancelable
-                                  params.detail.fold(()) { detail =>
-                                    init.detail = detail
-                                  }
-                                  val event = new dom.CustomEvent(tpe, init)
-                                  val node = n.asInstanceOf[dom.Node]
-                                  node.dispatchEvent(event)
-                                  ()
-                                }
-                              }
-                            )
-                          )
-                        )
-                    }
-
-                    case Property(name, valueFn) => {
-                      log("Step=AttrFn") *>
-                        F.defer(
-                          go(
-                            Continue(
-                              t,
-                              Each { (n: N, d: D, i: Int, group: List[N]) =>
-                                F.delay {
-                                  val props =
-                                    n.asInstanceOf[js.Dictionary[js.Any]]
-                                  val value = valueFn.asInstanceOf[
-                                    (Any, Any, Any, Any) => Option[Any]
-                                  ](n, d, i, group)
-                                  value.fold(props -= name)(a =>
-                                    props += (name -> a.asInstanceOf[js.Any])
-                                  )
-                                  ()
-                                }
-                              }
-                            )
-                          )
-                        )
-                    }
-
-                    case ClassedFn(names, value) => {
-                      val fn =
-                        value.asInstanceOf[(Any, Any, Any, Any) => Boolean]
-                      log("Step=ClassedFn") *>
-                        F.defer(
-                          go(
-                            Continue(
-                              t,
-                              Each { (n: N, d: D, i: Int, group: List[N]) =>
-                                F.delay {
-                                  val elm = n.asInstanceOf[dom.Element]
-                                  val classes = names.trim().split("""^|\s+""")
-                                  val value = fn(n, d, i, group)
-                                  if (value) {
-                                    classes.foreach(elm.classList.add)
-                                  } else {
-                                    classes.foreach(elm.classList.remove)
-                                  }
-                                }
-                              }
-                            )
-                          )
-                        )
-                    }
-
-                    case Append(name) =>
-                      log("Step=Append") *>
-                        F.defer(
-                          go(
-                            Continue(
-                              t,
-                              SelectFn { (n: N, _: D, _: Int, _: List[N]) =>
-                                F.delay {
-                                  val parent = n.asInstanceOf[dom.Node]
-                                  parent.appendChild(creator(name, parent))
-                                }
-                              }
-                            )
-                          )
-                        )
-
-                    case AppendFn(fn) =>
-                      log("Step=AppendFn") *>
-                        F.defer(
-                          go(
-                            Continue(
-                              t,
-                              SelectFn { (n: N, d: D, i: Int, group: List[N]) =>
-                                fn.asInstanceOf[(Any, Any, Any, Any) => F[
-                                  dom.Node
-                                ]](n, d, i, group)
-                                  .flatMap { node =>
-                                    F.delay {
-                                      val parent = n.asInstanceOf[dom.Node]
-                                      parent.appendChild(node)
-                                    }
-                                  }
-                              }
-                            )
-                          )
-                        )
-
-                    case Call(f) => {
-                      val f0 = f.asInstanceOf[Any => F[Unit]]
-                      val t0 = t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
-                      f0(t0).as(t0)
-                    }
-
-                    case Each(fn) => {
-                      log("Step=Each") *>
-                        groups
-                          .traverse_ { group =>
-                            group.zipWithIndex.traverse_ { case (node, i) =>
-                              F.whenA(node != null) {
-                                val data =
-                                  node
-                                    .asInstanceOf[js.Dictionary[Any]]
-                                    .get(DATA_KEY)
-                                    .getOrElse(null)
-                                val fn0 =
-                                  fn.asInstanceOf[
-                                    (Any, Any, Int, List[Any]) => F[
-                                      Unit
-                                    ]
-                                  ]
-                                fn0(node, data, i, group)
+                                ()
                               }
                             }
-                          } *> F
-                          .pure(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
-                    }
+                          )
+                        )
+                      )
+                  }
 
-                    case Select(selector) =>
-                      log("Step=Select") *> F.defer {
+                  case ClassedFn(names, value) => {
+                    val fn =
+                      value.asInstanceOf[(Any, Any, Any, Any) => Boolean]
+                    log("Step=ClassedFn") *>
+                      F.defer(
                         go(
                           Continue(
                             t,
-                            SelectFn { (n: N0, _: D0, _: Int, _: List[N0]) =>
+                            Each { (n: N, d: D, i: Int, group: List[N]) =>
                               F.delay {
-                                n.asInstanceOf[dom.Element]
-                                  .querySelector(selector)
-                                  .asInstanceOf[N0]
+                                val elm = n.asInstanceOf[dom.Element]
+                                val classes = names.trim().split("""^|\s+""")
+                                val value = fn(n, d, i, group)
+                                if (value) {
+                                  classes.foreach(elm.classList.add)
+                                } else {
+                                  classes.foreach(elm.classList.remove)
+                                }
                               }
                             }
                           )
                         )
-                      }
+                      )
+                  }
 
-                    case SelectFn(selector) => {
-                      log("Step=SelectFn") *>
-                        groups
-                          .traverse { group =>
-                            group.zipWithIndex.traverse { case (node, i) =>
-                              if (node != null) {
-                                val data =
-                                  node
-                                    .asInstanceOf[js.Dictionary[Any]]
-                                    .get(DATA_KEY)
-                                    .getOrElse(null)
-                                val newNode =
-                                  selector
-                                    .asInstanceOf[
-                                      (Any, Any, Int, List[Any]) => F[N0]
-                                    ](node, data, i, group)
-                                newNode.flatMap { n0 =>
+                  case Append(name) =>
+                    log("Step=Append") *>
+                      F.defer(
+                        go(
+                          Continue(
+                            t,
+                            SelectFn { (n: N, _: D, _: Int, _: List[N]) =>
+                              F.delay {
+                                val parent = n.asInstanceOf[dom.Node]
+                                parent.appendChild(creator(name, parent))
+                              }
+                            }
+                          )
+                        )
+                      )
+
+                  case AppendFn(fn) =>
+                    log("Step=AppendFn") *>
+                      F.defer(
+                        go(
+                          Continue(
+                            t,
+                            SelectFn { (n: N, d: D, i: Int, group: List[N]) =>
+                              fn.asInstanceOf[(Any, Any, Any, Any) => F[
+                                dom.Node
+                              ]](n, d, i, group)
+                                .flatMap { node =>
                                   F.delay {
-                                    if (n0 != null) {
-                                      n0.asInstanceOf[js.Dictionary[Any]](
-                                        DATA_KEY
-                                      ) = data
-                                    }
-                                    n0
+                                    val parent = n.asInstanceOf[dom.Node]
+                                    parent.appendChild(node)
                                   }
                                 }
-                              } else {
-                                F.pure(null.asInstanceOf[N0])
-                              }
                             }
-                          }
-                          .map { newGroups =>
-                            Terminal(
-                              newGroups,
-                              parents.asInstanceOf[List[PN0]]
-                            )
-                          }
-                    }
-
-                    case SelectAll(sel) =>
-                      log("Step=SelectAll") *> F.defer {
-                        go(
-                          Continue(
-                            t,
-                            SelectAllFn((n: N0, _: D0, _: Int, _: List[N0]) =>
-                              F.delay {
-                                n.asInstanceOf[dom.Element]
-                                  .querySelectorAll(sel)
-                                  .toList
-                              }
-                            )
                           )
                         )
-                      }
+                      )
 
-                    case SelectAllFn(sel) =>
-                      log("Step=SelectAllFn") *> groups
-                        .traverse { group =>
-                          group.filter(_ != null).zipWithIndex.traverse {
-                            case (node, i) =>
+                  case Call(f) => {
+                    val f0 = f.asInstanceOf[Any => F[Unit]]
+                    val t0 = t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
+                    f0(t0).as(t0)
+                  }
+
+                  case Each(fn) => {
+                    log("Step=Each") *>
+                      groups
+                        .traverse_ { group =>
+                          group.zipWithIndex.traverse_ { case (node, i) =>
+                            F.whenA(node != null) {
                               val data =
                                 node
                                   .asInstanceOf[js.Dictionary[Any]]
                                   .get(DATA_KEY)
                                   .getOrElse(null)
-                              sel.asInstanceOf[(Any, Any, Any, Any) => F[
-                                List[N0]
-                              ]](node, data, i, group)
+                              val fn0 =
+                                fn.asInstanceOf[
+                                  (Any, Any, Int, List[Any]) => F[
+                                    Unit
+                                  ]
+                                ]
+                              fn0(node, data, i, group)
+                            }
+                          }
+                        } *> F
+                        .pure(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
+                  }
+
+                  case Select(selector) =>
+                    log("Step=Select") *> F.defer {
+                      go(
+                        Continue(
+                          t,
+                          SelectFn { (n: N0, _: D0, _: Int, _: List[N0]) =>
+                            F.delay {
+                              n.asInstanceOf[dom.Element]
+                                .querySelector(selector)
+                                .asInstanceOf[N0]
+                            }
+                          }
+                        )
+                      )
+                    }
+
+                  case SelectFn(selector) => {
+                    log("Step=SelectFn") *>
+                      groups
+                        .traverse { group =>
+                          group.zipWithIndex.traverse { case (node, i) =>
+                            if (node != null) {
+                              val data =
+                                node
+                                  .asInstanceOf[js.Dictionary[Any]]
+                                  .get(DATA_KEY)
+                                  .getOrElse(null)
+                              val newNode =
+                                selector
+                                  .asInstanceOf[
+                                    (Any, Any, Int, List[Any]) => F[N0]
+                                  ](node, data, i, group)
+                              newNode.flatMap { n0 =>
+                                F.delay {
+                                  if (n0 != null) {
+                                    n0.asInstanceOf[js.Dictionary[Any]](
+                                      DATA_KEY
+                                    ) = data
+                                  }
+                                  n0
+                                }
+                              }
+                            } else {
+                              F.pure(null.asInstanceOf[N0])
+                            }
                           }
                         }
-                        .map(_.flatten)
                         .map { newGroups =>
-                          val newParents = groups.map { group =>
-                            group.filter(_ != null)
-                          }.flatten
                           Terminal(
-                            newGroups.asInstanceOf[List[List[N0]]],
-                            newParents.asInstanceOf[List[PN0]]
+                            newGroups,
+                            parents.asInstanceOf[List[PN0]]
                           )
                         }
+                  }
 
-                  }
+                  case SelectAll(sel) =>
+                    log("Step=SelectAll") *> F.defer {
+                      go(
+                        Continue(
+                          t,
+                          SelectAllFn((n: N0, _: D0, _: Int, _: List[N0]) =>
+                            F.delay {
+                              n.asInstanceOf[dom.Element]
+                                .querySelectorAll(sel)
+                                .toList
+                            }
+                          )
+                        )
+                      )
+                    }
+
+                  case SelectAllFn(sel) =>
+                    log("Step=SelectAllFn") *> groups
+                      .traverse { group =>
+                        group.filter(_ != null).zipWithIndex.traverse {
+                          case (node, i) =>
+                            val data =
+                              node
+                                .asInstanceOf[js.Dictionary[Any]]
+                                .get(DATA_KEY)
+                                .getOrElse(null)
+                            sel.asInstanceOf[(Any, Any, Any, Any) => F[
+                              List[N0]
+                            ]](node, data, i, group)
+                        }
+                      }
+                      .map(_.flatten)
+                      .map { newGroups =>
+                        val newParents = groups.map { group =>
+                          group.filter(_ != null)
+                        }.flatten
+                        Terminal(
+                          newGroups.asInstanceOf[List[List[N0]]],
+                          newParents.asInstanceOf[List[PN0]]
+                        )
+                      }
+
                 }
-              case Continue(current, step) =>
-                log("Continue") *>
-                  F.defer(go(current)).flatMap { s =>
-                    go(Continue(s, step))
-                  }
-              case EnterAppend(Enter.Nodes(nodes), name) => {
-                log(
-                  s"EnterAppend: nodes = ${nodes.map(_.mkString(", ")).mkString("\n")}"
-                ) *>
-                  nodes
-                    .traverse { nodes =>
-                      nodes.traverse { eNode =>
-                        F.delay {
-                          if (eNode != null) {
-                            val parent = eNode.parent.asInstanceOf[dom.Node]
-                            val child = creator(name, parent)
-                            parent
-                              .insertBefore(
-                                child,
-                                eNode._next.asInstanceOf[dom.Node]
-                              )
-                            child.asInstanceOf[js.Dictionary[Any]](DATA_KEY) =
-                              eNode.data
-                            child
-                          } else {
-                            null
-                          }
+              }
+            case Continue(current, step) =>
+              log("Continue") *>
+                F.defer(go(current)).flatMap { s =>
+                  go(Continue(s, step))
+                }
+            case EnterAppend(Enter.Nodes(nodes), name) => {
+              log(
+                s"EnterAppend: nodes = ${nodes.map(_.mkString(", ")).mkString("\n")}"
+              ) *>
+                nodes
+                  .traverse { nodes =>
+                    nodes.traverse { eNode =>
+                      F.delay {
+                        if (eNode != null) {
+                          val parent = eNode.parent.asInstanceOf[dom.Node]
+                          val child = creator(name, parent)
+                          parent
+                            .insertBefore(
+                              child,
+                              eNode._next.asInstanceOf[dom.Node]
+                            )
+                          child.asInstanceOf[js.Dictionary[Any]](DATA_KEY) =
+                            eNode.data
+                          child
+                        } else {
+                          null
                         }
                       }
                     }
-                    .map { groups =>
-                      val parents = nodes
-                        .map(nodes =>
-                          nodes.find(_ != null).map(_.parent).getOrElse(null)
-                        )
-                        .asInstanceOf[List[PN0]]
-                      Terminal(groups.asInstanceOf[List[List[N0]]], parents)
-                    }
-              }
-              case t @ Terminal(_, _, _, _) =>
-                log("Terminal") *> F
-                  .pure(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
-              case sel =>
-                throw new IllegalStateException(s"Unexpected type: $sel")
+                  }
+                  .map { groups =>
+                    val parents = nodes
+                      .map(nodes =>
+                        nodes.find(_ != null).map(_.parent).getOrElse(null)
+                      )
+                      .asInstanceOf[List[PN0]]
+                    Terminal(groups.asInstanceOf[List[List[N0]]], parents)
+                  }
             }
-
+            case t @ Terminal(_, _, _, _) =>
+              log("Terminal") *> F
+                .pure(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
+            case sel =>
+              throw new IllegalStateException(s"Unexpected type: $sel")
           }
 
-          go(selection) <* tm.run
         }
 
+        go(selection) <* tm.run
       }
 
     }
-
-    run(selection).void
 
   }
 
