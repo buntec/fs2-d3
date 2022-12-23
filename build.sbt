@@ -102,7 +102,7 @@ lazy val d3 = (project
   .enablePlugins(ScalaJSPlugin)
   .settings(
     commonSettings,
-    name := "scala-js-d3",
+    name := "fs2-d3",
     libraryDependencies ++= Seq(
       "org.scala-js" %%% "scalajs-dom" % scalajsDomVersion,
       "org.typelevel" %%% "cats-core" % catsVersion,
