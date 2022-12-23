@@ -431,12 +431,14 @@ object Selection {
                             )
                           )
                         }
+
                     case NewTransition() =>
                       log("Step=NewTransition") *>
                         tm.next.flatMap { newTrans =>
                           transRef.set(newTrans)
                         } *>
                         F.pure(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
+
                     case Remove() =>
                       log("Step=Remove") *>
                         F.defer(
@@ -457,8 +459,9 @@ object Selection {
                           )
                         )
 
-                    case On(typenames0, listener0, options, dispatcher) =>
+                    case On(typenames0, listener0, options0, dispatcher) =>
                       val typenames = parseListenerTypenames(typenames0)
+                      val options = options0.getOrElse(null)
                       log("Step=On") *> F.defer {
                         go(
                           Continue(
@@ -525,9 +528,13 @@ object Selection {
                                             .addEventListener(
                                               l.tpe,
                                               listener,
-                                              options.getOrElse(null)
+                                              options
                                             )
-                                          l.copy(listener = listener)
+                                          l.copy(
+                                            listener = listener,
+                                            options = options,
+                                            value = listener0
+                                          )
                                         } else {
                                           l
                                         }
@@ -538,7 +545,7 @@ object Selection {
                                         typename.name,
                                         listener0,
                                         listener,
-                                        options.getOrElse(null)
+                                        options
                                       )
 
                                       n.asInstanceOf[dom.Node]
