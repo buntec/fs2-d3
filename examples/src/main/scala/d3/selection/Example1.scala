@@ -8,12 +8,27 @@ import fs2.Stream
 import org.scalajs.dom
 
 import concurrent.duration._
+import cats.effect.std.Dispatcher
 
 class Example1[F[_]](implicit F: Async[F]) {
 
-  def run: F[Unit] = (run1, run2).parTupled.void
+  def run: F[Unit] = globalSetup >> (demo1, demo2, demo3).parTupled.void
 
-  def run1: F[Unit] = Random.scalaUtilRandom[F].flatMap { rng =>
+  val globalSetup =
+    d3.select("#app")
+      .classed("flex flex-col items-center", true)
+      .selectAll("div")
+      .data(List(1, 2, 3))
+      .join(enter =>
+        enter
+          .append[dom.Element]("div")
+          .classed("m-2 p-2 flex flex-col items-center text-lg", true)
+          .attr("id", (_, _, i, _) => s"demo-${i + 1}")
+      )
+      .compile
+      .drain
+
+  def demo1: F[Unit] = Random.scalaUtilRandom[F].flatMap { rng =>
     val letters = ('a' to 'z').toList.map(_.toString)
 
     val randomLetters = rng.betweenInt(6, 26).flatMap { n =>
@@ -23,15 +38,22 @@ class Example1[F[_]](implicit F: Async[F]) {
     val width = "400"
     val height = "50"
 
-    val setup = d3
-      .select("#app")
-      .append("svg")
-      .attr("id", "demo1")
-      .attr("width", width)
-      .attr("height", height)
-      .attr("viewBox", s"0 0 $width $height")
-      .compile
-      .drain
+    val setup = for {
+      _ <- d3
+        .select("#demo-1")
+        .append("h1")
+        .text("An example using selection + transition")
+        .compile
+        .drain
+      _ <- d3
+        .select("#demo-1")
+        .append("svg")
+        .attr("width", width)
+        .attr("height", height)
+        .attr("viewBox", s"0 0 $width $height")
+        .compile
+        .drain
+    } yield ()
 
     val transDuration = 750.millis
 
@@ -39,7 +61,7 @@ class Example1[F[_]](implicit F: Async[F]) {
       .fixedDelay[F](1.second))
       .evalMap(_ => randomLetters)
       .evalMap { data =>
-        d3.select[F, dom.Element, Nothing]("#demo1")
+        d3.select[F, dom.Element, Nothing]("#demo-1 svg")
           .selectAll[dom.Element, String]("text")
           .dataKeyed(data)(
             (_, d, _, _) => d,
@@ -79,22 +101,27 @@ class Example1[F[_]](implicit F: Async[F]) {
 
   }
 
-  def run2: F[Unit] = Random.scalaUtilRandom[F].flatMap { rng =>
+  def demo2: F[Unit] = Random.scalaUtilRandom[F].flatMap { rng =>
     val genData = rng.nextDouble.map(_ * 2.0 * math.Pi).replicateA(3)
     val radius = 100.0
     val transitionDuration = 750.millis
 
     val setup = for {
       _ <- d3
-        .select("#app")
+        .select("#demo-2")
+        .append("h1")
+        .text("An example using selection + transition")
+        .compile
+        .drain
+      root <- d3
+        .select("#demo-2")
         .append("svg")
-        .attr("id", "demo2")
         .attr("width", "300")
         .attr("height", "300")
         .compile
-        .drain
+        .node[F, dom.Element]
       _ <- d3
-        .select("#demo2")
+        .select[F, dom.Element, Nothing](root.get)
         .append("circle")
         .attr("style", "fill: none; stroke: #ccc; stroke-dasharray: 1,1")
         .attr("cx", "150")
@@ -102,49 +129,104 @@ class Example1[F[_]](implicit F: Async[F]) {
         .attr("r", s"$radius")
         .compile
         .drain
-      _ <- d3
-        .select("#demo2")
+      g <- d3
+        .select[F, dom.Element, Nothing](root.get)
         .append("g")
         .attr("transform", "translate(150, 150)")
         .compile
+        .node[F, dom.Element]
+    } yield g.get
+
+    setup.flatMap { case root =>
+      Stream
+        .fixedDelay(1.second)
+        .evalMap(_ => genData)
+        .evalMap { data =>
+          d3.select(root)
+            .selectAll[dom.Element, Double]("circle")
+            .data(data)
+            .join(
+              _.append[dom.Element]("circle")
+                .attr("r", "7")
+                .attr("fill", "gray")
+                .attr("cx", "0")
+                .attr("cy", "0")
+            )
+            .transition
+            .attr(
+              "cx",
+              (_, d, _, _) => s"${radius * math.cos(d)}",
+              transitionDuration,
+              0.seconds
+            )
+            .attr(
+              "cy",
+              (_, d, _, _) => s"${radius * math.sin(d)}",
+              transitionDuration,
+              0.seconds
+            )
+            .compile
+            .drain
+
+        }
+        .compile
         .drain
-    } yield ()
+    }
 
-    val loop = Stream
-      .fixedDelay(1.second)
-      .evalMap(_ => genData)
-      .evalMap { data =>
-        d3.select[F, dom.Element, Nothing]("#demo2 g")
-          .selectAll[dom.Element, Double]("circle")
-          .data(data)
-          .join(
-            _.append[dom.Element]("circle")
-              .attr("r", "7")
-              .attr("fill", "blue")
-              .attr("cx", "0")
-              .attr("cy", "0")
-          )
-          .transition
-          .attr(
-            "cx",
-            (_, d, _, _) => s"${radius * math.cos(d)}",
-            transitionDuration,
-            0.seconds
-          )
-          .attr(
-            "cy",
-            (_, d, _, _) => s"${radius * math.sin(d)}",
-            transitionDuration,
-            0.seconds
-          )
-          .compile
-          .drain
+  }
 
-      }
-      .compile
-      .drain
+  def demo3: F[Unit] = Dispatcher.sequential[F].use { dispatcher =>
+    val width = "400"
+    val height = "50"
+    val data = List("1", "2", "3", "4", "5", "6", "7", "8")
 
-    setup >> loop
+    val setup = for {
+      _ <- d3
+        .select("#demo-3")
+        .append("h1")
+        .text(
+          "An example using event listeners - click on the circles to change their color"
+        )
+        .compile
+        .drain
+      svg <- d3
+        .select("#demo-3")
+        .append[dom.Element]("svg")
+        .attr("id", "demo3")
+        .attr("width", width)
+        .attr("height", height)
+        .attr("viewBox", s"0 0 $width $height")
+        .compile
+        .node
+    } yield svg.get
+
+    setup.flatMap { svg =>
+      d3.select(svg)
+        .selectAll("circle")
+        .data(data)
+        .join(
+          _.append[dom.Element]("circle")
+            .attr("r", "10")
+            .attr("fill", "gray")
+            .attr("cx", (_, _, i, _) => s"${50 * i + 10}")
+            .attr("cy", "25")
+            .on(
+              "click",
+              Some((n: dom.Element, _: dom.Event, _: String) =>
+                d3.select(n).compile.style("fill").flatMap { fill =>
+                  val newFill =
+                    if (fill.exists(_ == "orange")) "gray" else "orange"
+                  d3.select(n).style("fill", Some(newFill)).compile.drain
+                }
+              ),
+              None,
+              dispatcher
+            )
+        )
+        .compile
+        .drain
+    } >> F.never // we need `never` here to keep the dispatcher alive
+
   }
 
 }

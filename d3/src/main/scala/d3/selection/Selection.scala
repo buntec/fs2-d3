@@ -1420,7 +1420,7 @@ object Selection {
       priority: Boolean
   ) extends Action[F, N, D, PN, PD]
 
-  private case class Terminal[F[_], N, D, PN, PD](
+  private[selection] case class Terminal[F[_], N, D, PN, PD](
       groups: List[List[N]],
       parents: List[PN],
       enter: Option[List[List[EnterNode[D, PN]]]] = None,
