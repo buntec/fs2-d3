@@ -35,23 +35,23 @@ class Example2[F[_]](implicit F: Async[F]) {
       _ <- d3
         .select("#app")
         .append("svg")
-        .attr("width", "800")
-        .attr("height", "300")
+        .attr("width", "800".some)
+        .attr("height", "300".some)
         .compile
         .drain
       _ <- d3
         .select("svg")
         .append("circle")
-        .attr("style", "fill: none; stroke: #ccc; stroke-dasharray: 1,1")
-        .attr("cx", "150")
-        .attr("cy", "150")
-        .attr("r", s"$radius")
+        .attr("style", "fill: none; stroke: #ccc; stroke-dasharray: 1,1".some)
+        .attr("cx", "150".some)
+        .attr("cy", "150".some)
+        .attr("r", s"$radius".some)
         .compile
         .drain
       _ <- d3
         .select("svg")
         .append("g")
-        .attr("transform", "translate(150, 150)")
+        .attr("transform", "translate(150, 150)".some)
         .compile
         .drain
     } yield ()
@@ -65,10 +65,10 @@ class Example2[F[_]](implicit F: Async[F]) {
           .data(data)
           .join[F, dom.Element, Double, dom.Element, Nothing](
             _.append[dom.Element]("circle")
-              .attr("r", "7")
-              .attr("fill", "blue")
-              .attr("cx", "0")
-              .attr("cy", "0")
+              .attr("r", "7".some)
+              .attr("fill", "blue".some)
+              .attr("cx", "0".some)
+              .attr("cy", "0".some)
           )
           .transition
           .attr(

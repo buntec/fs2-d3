@@ -32,13 +32,16 @@ class Example1[F[_]](implicit F: Async[F]) {
 
   val globalSetup =
     d3.select("#app")
-      .classed("flex flex-col items-center", true)
+      .classed("flex flex-col items-center mx-8", true)
       .selectAll("div")
       .data(List(1, 2, 3))
       .join[F, dom.Element, Int, dom.Element, Nothing](
         _.append[dom.Element]("div")
-          .classed("m-2 p-2 flex flex-col items-center text-lg", true)
-          .attr("id", (_, _, i, _) => s"demo-${i + 1}")
+          .classed(
+            "p-4 flex flex-col items-center text-lg w-full border-b",
+            true
+          )
+          .attr("id", (_, _, i, _) => s"demo-${i + 1}".some)
       )
       .compile
       .drain
@@ -63,9 +66,9 @@ class Example1[F[_]](implicit F: Async[F]) {
       _ <- d3
         .select("#demo-1")
         .append("svg")
-        .attr("width", width)
-        .attr("height", height)
-        .attr("viewBox", s"0 0 $width $height")
+        .attr("width", width.some)
+        .attr("height", height.some)
+        .attr("viewBox", s"0 0 $width $height".some)
         .compile
         .drain
     } yield ()
@@ -84,15 +87,15 @@ class Example1[F[_]](implicit F: Async[F]) {
           )
           .join[F, dom.Element, String, dom.Element, Nothing](
             _.append[dom.Element]("text")
-              .attr("fill", "green")
-              .attr("opacity", "1.0")
-              .attr("x", (_, _, i, _) => s"${16 * i}")
-              .attr("y", "0")
+              .attr("fill", "green".some)
+              .attr("opacity", "1.0".some)
+              .attr("x", (_, _, i, _) => s"${16 * i}".some)
+              .attr("y", "0".some)
               .text((_, d, _, _) => d)
               .transition
               .attr("y", "25", transDuration, 0.seconds),
             // update
-            _.attr("fill", "black").transition
+            _.attr("fill", "black".some).transition
               .attr(
                 "x",
                 (_, _, i, _) => s"${16 * i}",
@@ -100,7 +103,7 @@ class Example1[F[_]](implicit F: Async[F]) {
                 0.seconds
               ),
             // exit
-            _.attr("fill", "brown").transition
+            _.attr("fill", "brown".some).transition
               .attr("y", "50", transDuration, 0.seconds)
               .attr("opacity", "0", transDuration, 0.seconds)
               .remove
@@ -130,23 +133,23 @@ class Example1[F[_]](implicit F: Async[F]) {
       root <- d3
         .select("#demo-2")
         .append("svg")
-        .attr("width", "300")
-        .attr("height", "300")
+        .attr("width", "300".some)
+        .attr("height", "300".some)
         .compile
         .node[F, dom.Element]
       _ <- d3
         .select[F, dom.Element, Nothing](root.get)
         .append("circle")
-        .attr("style", "fill: none; stroke: #ccc; stroke-dasharray: 1,1")
-        .attr("cx", "150")
-        .attr("cy", "150")
-        .attr("r", s"$radius")
+        .attr("style", "fill: none; stroke: #ccc; stroke-dasharray: 1,1".some)
+        .attr("cx", "150".some)
+        .attr("cy", "150".some)
+        .attr("r", s"$radius".some)
         .compile
         .drain
       g <- d3
         .select[F, dom.Element, Nothing](root.get)
         .append("g")
-        .attr("transform", "translate(150, 150)")
+        .attr("transform", "translate(150, 150)".some)
         .compile
         .node[F, dom.Element]
     } yield g.get
@@ -161,10 +164,10 @@ class Example1[F[_]](implicit F: Async[F]) {
             .data(data)
             .join[F, dom.Element, Double, dom.Element, Nothing](
               _.append[dom.Element]("circle")
-                .attr("r", "7")
-                .attr("fill", "gray")
-                .attr("cx", "0")
-                .attr("cy", "0")
+                .attr("r", "7".some)
+                .attr("fill", "gray".some)
+                .attr("cx", "0".some)
+                .attr("cy", "0".some)
             )
             .transition
             .attr(
@@ -206,10 +209,10 @@ class Example1[F[_]](implicit F: Async[F]) {
       svg <- d3
         .select("#demo-3")
         .append[dom.Element]("svg")
-        .attr("id", "demo3")
-        .attr("width", width)
-        .attr("height", height)
-        .attr("viewBox", s"0 0 $width $height")
+        .attr("id", "demo3".some)
+        .attr("width", width.some)
+        .attr("height", height.some)
+        .attr("viewBox", s"0 0 $width $height".some)
         .compile
         .node
     } yield svg.get
@@ -220,10 +223,10 @@ class Example1[F[_]](implicit F: Async[F]) {
         .data(data)
         .join[F, dom.Element, String, dom.Element, Nothing](
           _.append[dom.Element]("circle")
-            .attr("r", "10")
-            .attr("fill", "gray")
-            .attr("cx", (_, _, i, _) => s"${50 * i + 10}")
-            .attr("cy", "25")
+            .attr("r", "10".some)
+            .attr("fill", "gray".some)
+            .attr("cx", (_, _, i, _) => s"${50 * i + 10}".some)
+            .attr("cy", "25".some)
             .on(
               "click",
               Some((n: dom.Element, _: dom.Event, _: String) =>

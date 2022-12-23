@@ -44,6 +44,15 @@ import scala.concurrent.duration.FiniteDuration
 import scalajs.js
 import Selection._
 
+/*
+ *
+ * F = effect type
+ * N = node type
+ * D = node datum type
+ * PN = parent node type
+ * PD = parent node datum type
+ *
+ */
 sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
 
   def append[N0](name: String): Selection[F, N0, D, PN, PD] =
@@ -54,12 +63,12 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   ): Selection[F, N0, D, PN, PD] =
     Continue(this, AppendFn(fn))
 
-  def attr(name: String, value: String): Selection[F, N, D, PN, PD] =
+  def attr(name: String, value: Option[String]): Selection[F, N, D, PN, PD] =
     Continue(this, AttrFn(name, (_: N, _: D, _: Int, _: List[N]) => value))
 
   def attr(
       name: String,
-      value: (N, D, Int, List[N]) => String
+      value: (N, D, Int, List[N]) => Option[String]
   ): Selection[F, N, D, PN, PD] =
     Continue(this, AttrFn(name, value))
 
@@ -562,9 +571,9 @@ object Selection {
                       )
 
                   case On(typenames0, listener0, options0, dispatcher) =>
-                    val typenames = parseListenerTypenames(typenames0)
-                    val options = options0.getOrElse(null)
                     log("Step=On") *> F.defer {
+                      val typenames = parseListenerTypenames(typenames0)
+                      val options = options0.getOrElse(null)
                       go(
                         Continue(
                           t,
@@ -670,7 +679,7 @@ object Selection {
                       )
                     }
 
-                  case Order() => {
+                  case Order() =>
                     log("Step=Order") *>
                       F.delay {
                         groups
@@ -693,7 +702,6 @@ object Selection {
                             case _ => ()
                           }
                       }.as(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
-                  }
 
                   case Sort(lt) =>
                     log("Step=Sort") *> F
@@ -994,9 +1002,7 @@ object Selection {
                       )
                   }
 
-                  case AttrFn(name, value) => {
-                    val fn =
-                      value.asInstanceOf[(Any, Any, Any, Any) => String]
+                  case AttrFn(name, valueFn) =>
                     log("Step=AttrFn") *>
                       F.defer(
                         go(
@@ -1004,14 +1010,36 @@ object Selection {
                             t,
                             Each { (n: N, d: D, i: Int, group: List[N]) =>
                               F.delay {
+                                val fn = valueFn
+                                  .asInstanceOf[(Any, Any, Any, Any) => Option[
+                                    String
+                                  ]]
                                 val elm = n.asInstanceOf[dom.Element]
-                                elm.setAttribute(name, fn(n, d, i, group))
+                                namespace(name) match {
+                                  case Left(name0) =>
+                                    fn(n, d, i, group) match {
+                                      case Some(value) =>
+                                        elm.setAttribute(name0, value)
+                                      case None => elm.removeAttribute(name0)
+                                    }
+                                  case Right(ns) =>
+                                    fn(n, d, i, group) match {
+                                      case Some(value) =>
+                                        elm.setAttributeNS(
+                                          ns.space,
+                                          ns.local,
+                                          value
+                                        )
+                                      case None =>
+                                        elm
+                                          .removeAttributeNS(ns.space, ns.local)
+                                    }
+                                }
                               }
                             }
                           )
                         )
                       )
-                  }
 
                   case StyleFn(name, valueFn, priority) => {
                     log("Step=StyleFn") *>
@@ -1345,7 +1373,7 @@ object Selection {
 
   private case class AttrFn[F[_], N, D, PN, PD](
       name: String,
-      value: (N, D, Int, List[N]) => String
+      value: (N, D, Int, List[N]) => Option[String]
   ) extends Action[F, N, D, PN, PD]
 
   private case class AttrTransitionFn[F[_], N, D, PN, PD](
