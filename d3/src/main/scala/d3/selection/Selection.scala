@@ -457,7 +457,7 @@ object Selection {
                           )
                         )
 
-                    case On(typenames0, listener, options, dispatcher) =>
+                    case On(typenames0, listener0, options, dispatcher) =>
                       val typenames = parseListenerTypenames(typenames0)
                       log("Step=On") *> F.defer {
                         go(
@@ -466,18 +466,17 @@ object Selection {
                             Each { (n: N, d: D, _: Int, _: List[N]) =>
                               typenames.traverse_ { typename =>
                                 F.delay {
-                                  listener match {
+                                  listener0 match {
                                     case None =>
                                       val dict =
-                                        n.asInstanceOf[js.Dictionary[Any]]
+                                        n.asInstanceOf[js.Dictionary[List[
+                                          WrappedListener
+                                        ]]]
+
                                       val on = dict
                                         .get(LISTENER_KEY)
-                                        .map(
-                                          _.asInstanceOf[List[
-                                            WrappedListener
-                                          ]]
-                                        )
                                         .getOrElse(Nil)
+
                                       on.filter(l =>
                                         l.tpe == typename.tpe && l.name == typename.name
                                       ).foreach { l =>
@@ -488,40 +487,69 @@ object Selection {
                                             l.options
                                           )
                                       }
+
                                       dict(LISTENER_KEY) = on.filterNot(l =>
                                         l.tpe == typename.tpe && l.name == typename.name
                                       )
 
-                                    case Some(listener) => {
+                                    case Some(listener1) => {
+                                      val listener
+                                          : js.Function1[dom.Event, Unit] =
+                                        (ev: dom.Event) =>
+                                          dispatcher.unsafeRunAndForget(
+                                            listener1.asInstanceOf[
+                                              (Any, Any, Any) => F[Unit]
+                                            ](n, ev, d)
+                                          )
+
                                       val dict =
-                                        n.asInstanceOf[js.Dictionary[Any]]
+                                        n.asInstanceOf[js.Dictionary[List[
+                                          WrappedListener
+                                        ]]]
+
                                       val on = dict
                                         .get(LISTENER_KEY)
-                                        .map(
-                                          _.asInstanceOf[List[WrappedListener]]
-                                        )
                                         .getOrElse(Nil)
-                                      on.filter(l =>
-                                        l.tpe == typename.tpe && l.name == typename.name
-                                      ).foreach { l =>
-                                        n.asInstanceOf[dom.Node]
-                                          .removeEventListener(
-                                            l.tpe,
-                                            l.listener,
-                                            l.options
-                                          )
-                                        n.asInstanceOf[dom.Node]
-                                          .addEventListener(
-                                            l.tpe,
-                                            (ev: dom.Event) =>
-                                              dispatcher.unsafeRunAndForget(
-                                                listener.asInstanceOf[
-                                                  (Any, Any, Any) => F[Unit]
-                                                ](n, ev, d)
-                                              ),
-                                            options.getOrElse(null)
-                                          )
+
+                                      val on2 = on.map { l =>
+                                        if (
+                                          l.tpe == typename.tpe && l.name == typename.name
+                                        ) {
+                                          n.asInstanceOf[dom.Node]
+                                            .removeEventListener(
+                                              l.tpe,
+                                              l.listener,
+                                              l.options
+                                            )
+                                          n.asInstanceOf[dom.Node]
+                                            .addEventListener(
+                                              l.tpe,
+                                              listener,
+                                              options.getOrElse(null)
+                                            )
+                                          l.copy(listener = listener)
+                                        } else {
+                                          l
+                                        }
                                       }
+
+                                      val wl = WrappedListener(
+                                        typename.tpe,
+                                        typename.name,
+                                        listener0,
+                                        listener,
+                                        options.getOrElse(null)
+                                      )
+
+                                      n.asInstanceOf[dom.Node]
+                                        .addEventListener(
+                                          wl.tpe,
+                                          wl.listener,
+                                          wl.options
+                                        )
+
+                                      dict(LISTENER_KEY) = wl :: on2
+
                                     }
                                   }
                                 }
