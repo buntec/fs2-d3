@@ -45,25 +45,29 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   ): Selection[F, N, D, PN, PD] =
     Continue(this, ClassedFn(names, value))
 
-  def data[D0](data: List[D0]): Selection[F, N, D0, PN, PD] =
-    Continue(this, DataFn((_: PN, _: PD, _: Int, _: List[PN]) => data, None))
+  def data[D0](data: List[D0]): DataOps[F, N, D0, PN, PD] =
+    new DataOps(
+      Continue(this, DataFn((_: PN, _: PD, _: Int, _: List[PN]) => data, None))
+    )
 
   def data[D0](
       data: (PN, PD, Int, List[PN]) => List[D0]
-  ): Selection[F, N, D0, PN, PD] =
-    Continue(this, DataFn(data, None))
+  ): DataOps[F, N, D0, PN, PD] =
+    new DataOps(Continue(this, DataFn(data, None)))
 
   def dataKeyed[D0](
       data: List[D0]
   )( // curry for better type inference
       nodeKey: (N, D, Int, List[N]) => String,
       datumKey: (PN, D0, Int, List[D0]) => String
-  ): Selection[F, N, D0, PN, PD] =
-    Continue(
-      this,
-      DataFn(
-        (_: PN, _: PD, _: Int, _: List[PN]) => data,
-        Some((nodeKey, datumKey))
+  ): DataOps[F, N, D0, PN, PD] =
+    new DataOps(
+      Continue(
+        this,
+        DataFn(
+          (_: PN, _: PD, _: Int, _: List[PN]) => data,
+          Some((nodeKey, datumKey))
+        )
       )
     )
 
@@ -72,8 +76,8 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   )( // curry for better type inference
       nodeKey: (N, D, Int, List[N]) => String,
       datumKey: (PN, D0, Int, List[D0]) => String
-  ): Selection[F, N, D0, PN, PD] =
-    Continue(this, DataFn(data, Some((nodeKey, datumKey))))
+  ): DataOps[F, N, D0, PN, PD] =
+    new DataOps(Continue(this, DataFn(data, Some((nodeKey, datumKey)))))
 
   def datum[D0](value: Option[D0]): Selection[F, N, D0, PN, PD] =
     Continue(
@@ -110,18 +114,6 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
       pred: (N, D, Int, List[N]) => Boolean
   ): Selection[F, N, D, PN, PD] =
     Continue(this, FilterFn(pred))
-
-  def join[F1[x] >: F[x], N0, N1 >: N, D1 >: D, PN1 >: PN, PD1 >: PD](
-      onEnter: Enter[F, N, D, PN, PD] => Selection[F1, N0, D1, PN1, PD1],
-      onUpdate: Selection[F, N, D, PN, PD] => Selection[F1, N1, D1, PN1, PD1] =
-        (sel: Selection[F, N, D, PN, PD]) => sel,
-      onExit: Selection[F, N, D, PN, PD] => Selection[F1, N1, D1, PN1, PD1] =
-        (sel: Selection[F, N, D, PN, PD]) => sel.remove
-  ): Selection[F, N, D, PN, PD] =
-    Continue(this, Join(onEnter, onUpdate, onExit))
-
-  def join(name: String): Selection[F, N, D, PN, PD] =
-    join(enter => enter.append(name))
 
   def on[F1[x] >: F[x]](
       typenames: String,
@@ -189,8 +181,8 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   def text(value: (N, D, Int, List[N]) => String): Selection[F, N, D, PN, PD] =
     Continue(this, TextFn(value))
 
-  def transition: Transition[F, N, D, PN, PD] =
-    new Transition(Continue(this, NewTransition()))
+  def transition: TransitionOps[F, N, D, PN, PD] =
+    new TransitionOps(Continue(this, NewTransition()))
 
 }
 
@@ -222,25 +214,50 @@ object Selection {
 
   }
 
-  sealed class Transition[+F[_], +N, +D, +PN, +PD](
+  final class DataOps[+F[_], +N, +D, +PN, +PD] private[selection] (
+      private val sel: Selection[F, N, D, PN, PD]
+  ) {
+
+    def update: Selection[F, N, D, PN, PD] = sel
+
+    def join(name: String): Selection[F, N, D, PN, PD] =
+      join(enter => enter.append(name))
+
+    def join[F1[x] >: F[x], N0, N1 >: N, D1 >: D, PN1 >: PN, PD1 >: PD](
+        onEnter: Enter[F, N, D, PN, PD] => Selection[F1, N0, D1, PN1, PD1],
+        onUpdate: Selection[F, N, D, PN, PD] => Selection[
+          F1,
+          N1,
+          D1,
+          PN1,
+          PD1
+        ] = (sel: Selection[F, N, D, PN, PD]) => sel,
+        onExit: Selection[F, N, D, PN, PD] => Selection[F1, N1, D1, PN1, PD1] =
+          (sel: Selection[F, N, D, PN, PD]) => sel.remove
+    ): Selection[F, N, D, PN, PD] =
+      Continue(sel, Join(onEnter, onUpdate, onExit))
+
+  }
+
+  final class TransitionOps[+F[_], +N, +D, +PN, +PD] private[selection] (
       private val sel: Selection[F, N, D, PN, PD]
   ) {
 
     def selection: Selection[F, N, D, PN, PD] = sel
 
-    def transition: Transition[F, N, D, PN, PD] =
-      new Transition(Continue(sel, NewTransition()))
+    def transition: TransitionOps[F, N, D, PN, PD] =
+      new TransitionOps(Continue(sel, NewTransition()))
 
-    def remove: Transition[F, N, D, PN, PD] =
-      new Transition(Continue(sel, RemoveAfterTransition()))
+    def remove: TransitionOps[F, N, D, PN, PD] =
+      new TransitionOps(Continue(sel, RemoveAfterTransition()))
 
     def attr(
         name: String,
         value: String,
         duration: FiniteDuration,
         delay: FiniteDuration
-    ): Transition[F, N, D, PN, PD] =
-      new Transition(
+    ): TransitionOps[F, N, D, PN, PD] =
+      new TransitionOps(
         Continue(
           sel,
           AttrTransitionFn(
@@ -257,8 +274,8 @@ object Selection {
         value: (N, D, Int, List[N]) => String,
         duration: FiniteDuration,
         delay: FiniteDuration
-    ): Transition[F, N, D, PN, PD] =
-      new Transition(
+    ): TransitionOps[F, N, D, PN, PD] =
+      new TransitionOps(
         Continue(
           sel,
           AttrTransitionFn(
@@ -272,14 +289,14 @@ object Selection {
 
   }
 
-  object Transition {
+  object TransitionOps {
 
     implicit def toSelection[F[_], N, D, PN, PD](
-        transition: Transition[F, N, D, PN, PD]
+        transition: TransitionOps[F, N, D, PN, PD]
     ): Selection[F, N, D, PN, PD] = transition.selection
 
-    implicit class TransitionOps[F[_], N, D, PN, PD](
-        private val t: Transition[F, N, D, PN, PD]
+    implicit class TransitionOpsOps[F[_], N, D, PN, PD](
+        private val t: TransitionOps[F, N, D, PN, PD]
     ) extends AnyVal {
 
       def compile(implicit F: Async[F]): F[Unit] =
@@ -300,7 +317,7 @@ object Selection {
         nodes: List[List[EnterNode[D, PN]]]
     ) extends Enter[F, N, D, PN, PD]
 
-    def nodes[F[_], N, D, PN, PD](
+    private[selection] def nodes[F[_], N, D, PN, PD](
         nodes: List[List[EnterNode[D, PN]]]
     ): Enter[F, N, D, PN, PD] = Nodes(nodes)
 
@@ -1390,6 +1407,7 @@ object Selection {
   }
 
   private case class ListenerTypeAndName(tpe: String, name: String)
+
   private case class WrappedListener(
       tpe: String,
       name: String,
