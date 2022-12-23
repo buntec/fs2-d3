@@ -63,7 +63,7 @@ class Example2[F[_]](implicit F: Async[F]) {
         d3.select[F, dom.Element, Nothing]("svg g")
           .selectAll[dom.Element, Double]("circle")
           .data(data)
-          .join(
+          .join[F, dom.Element, Double, dom.Element, Nothing](
             _.append[dom.Element]("circle")
               .attr("r", "7")
               .attr("fill", "blue")

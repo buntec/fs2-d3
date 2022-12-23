@@ -4,9 +4,11 @@ Global / semanticdbVersion := scalafixSemanticdb.revision // only required for S
 
 ThisBuild / tlBaseVersion := "0.1"
 
-val scala213 = "2.13.10"
+lazy val scala213 = "2.13.10"
+lazy val scala3 = "3.2.1"
+
 ThisBuild / scalaVersion := scala213
-ThisBuild / crossScalaVersions := Seq(scala213, "3.1.2")
+ThisBuild / crossScalaVersions := Seq(scala213, scala3)
 ThisBuild / organization := "io.github.buntec"
 ThisBuild / organizationName := "buntec"
 ThisBuild / tlSonatypeUseLegacyHost := false

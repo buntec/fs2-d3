@@ -313,20 +313,25 @@ object Selection {
     def update: Selection[F, N, D, PN, PD] = sel
 
     def join(name: String): Selection[F, N, D, PN, PD] =
-      join(enter => enter.append(name))
+      join[F, N, D, PN, PD](_.append(name))
 
-    def join[F1[x] >: F[x], N0, N1 >: N, D1 >: D, PN1 >: PN, PD1 >: PD](
-        onEnter: Enter[F, N, D, PN, PD] => Selection[F1, N0, D1, PN1, PD1],
-        onUpdate: Selection[F, N, D, PN, PD] => Selection[
+    def join[F1[x] >: F[x], N1 >: N, D1 >: D, PN1 >: PN, PD1 >: PD](
+        onEnter: Enter[F1, N1, D1, PN1, PD1] => Selection[F1, N1, D1, PN1, PD1],
+        onUpdate: Selection[F1, N1, D1, PN1, PD1] => Selection[
           F1,
           N1,
           D1,
           PN1,
           PD1
-        ] = (sel: Selection[F, N, D, PN, PD]) => sel,
-        onExit: Selection[F, N, D, PN, PD] => Selection[F1, N1, D1, PN1, PD1] =
-          (sel: Selection[F, N, D, PN, PD]) => sel.remove
-    ): Selection[F, N, D, PN, PD] =
+        ] = (sel: Selection[F1, N1, D1, PN1, PD1]) => sel,
+        onExit: Selection[F1, N1, D1, PN1, PD1] => Selection[
+          F1,
+          N1,
+          D1,
+          PN1,
+          PD1
+        ] = (sel: Selection[F1, N1, D1, PN1, PD1]) => sel.remove
+    ): Selection[F1, N1, D1, PN1, PD1] =
       Continue(sel, Join(onEnter, onUpdate, onExit))
 
   }
@@ -596,11 +601,13 @@ object Selection {
                                     val listener
                                         : js.Function1[dom.Event, Unit] =
                                       (ev: dom.Event) =>
-                                        dispatcher.unsafeRunAndForget(
-                                          listener1.asInstanceOf[
-                                            (Any, Any, Any) => F[Unit]
-                                          ](n, ev, d)
-                                        )
+                                        dispatcher
+                                          .asInstanceOf[Dispatcher[F]]
+                                          .unsafeRunAndForget(
+                                            listener1.asInstanceOf[
+                                              (Any, Any, Any) => F[Unit]
+                                            ](n, ev, d)
+                                          )
 
                                     val dict =
                                       n.asInstanceOf[js.Dictionary[List[
@@ -824,7 +831,7 @@ object Selection {
                             val updateGroup = new Array[Any](dataLength)
                             val exitGroup = new Array[Any](groupLength)
 
-                            val nodes = group.toArray
+                            val nodes = group.asInstanceOf[List[Any]].toArray
                             val dataArr = data.toArray
 
                             keyOpt match {
@@ -1398,12 +1405,10 @@ object Selection {
       fn: (N, D, Int, List[N]) => Boolean
   ) extends Action[F, N, D, PN, PD]
 
-  private case class Join[F[_], F1[x] >: F[
-    x
-  ], N, D, PN, PD, N0, N1 >: N, D1 >: D, PN1 >: PN, PD1 >: PD](
-      onEnter: Enter[F, N, D, PN, PD] => Selection[F1, N0, D1, PN1, PD1],
-      onUpdate: Selection[F, N, D, PN, PD] => Selection[F1, N1, D1, PN1, PD1],
-      onExit: Selection[F, N, D, PN, PD] => Selection[F1, N1, D1, PN1, PD1]
+  private case class Join[F[_], N, D, PN, PD, N0](
+      onEnter: Enter[F, N, D, PN, PD] => Selection[F, N0, D, PN, PD],
+      onUpdate: Selection[F, N, D, PN, PD] => Selection[F, N, D, PN, PD],
+      onExit: Selection[F, N, D, PN, PD] => Selection[F, N, D, PN, PD]
   ) extends Action[F, N, D, PN, PD]
 
   private case class NewTransition[F[_], N, D, PN, PD]()

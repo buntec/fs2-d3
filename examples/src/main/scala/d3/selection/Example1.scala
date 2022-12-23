@@ -18,13 +18,13 @@ package d3.selection.examples
 
 import cats.effect.implicits._
 import cats.effect.kernel.Async
+import cats.effect.std.Dispatcher
 import cats.effect.std.Random
 import cats.syntax.all._
 import fs2.Stream
 import org.scalajs.dom
 
 import concurrent.duration._
-import cats.effect.std.Dispatcher
 
 class Example1[F[_]](implicit F: Async[F]) {
 
@@ -35,9 +35,8 @@ class Example1[F[_]](implicit F: Async[F]) {
       .classed("flex flex-col items-center", true)
       .selectAll("div")
       .data(List(1, 2, 3))
-      .join(enter =>
-        enter
-          .append[dom.Element]("div")
+      .join[F, dom.Element, Int, dom.Element, Nothing](
+        _.append[dom.Element]("div")
           .classed("m-2 p-2 flex flex-col items-center text-lg", true)
           .attr("id", (_, _, i, _) => s"demo-${i + 1}")
       )
@@ -83,8 +82,7 @@ class Example1[F[_]](implicit F: Async[F]) {
             (_, d, _, _) => d,
             (_, d, _, _) => d
           )
-          .join(
-            // enter
+          .join[F, dom.Element, String, dom.Element, Nothing](
             _.append[dom.Element]("text")
               .attr("fill", "green")
               .attr("opacity", "1.0")
@@ -159,9 +157,9 @@ class Example1[F[_]](implicit F: Async[F]) {
         .evalMap(_ => genData)
         .evalMap { data =>
           d3.select(root)
-            .selectAll[dom.Element, Double]("circle")
+            .selectAll("circle")
             .data(data)
-            .join(
+            .join[F, dom.Element, Double, dom.Element, Nothing](
               _.append[dom.Element]("circle")
                 .attr("r", "7")
                 .attr("fill", "gray")
@@ -220,7 +218,7 @@ class Example1[F[_]](implicit F: Async[F]) {
       d3.select(svg)
         .selectAll("circle")
         .data(data)
-        .join(
+        .join[F, dom.Element, String, dom.Element, Nothing](
           _.append[dom.Element]("circle")
             .attr("r", "10")
             .attr("fill", "gray")

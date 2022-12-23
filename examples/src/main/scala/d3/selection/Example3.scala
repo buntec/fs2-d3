@@ -28,7 +28,9 @@ class Example3[F[_]](implicit F: Async[F]) {
       .append("span")
       .selectAll[dom.Element, String]("span")
       .data(data)
-      .join(_.append("p"))
+      .join[F, dom.Element, String, dom.Element, Nothing](
+        _.append("p")
+      )
       .append[F, dom.Element] { (_, d, _, _) =>
         F.delay {
           val node = dom.document.createElement("div")
