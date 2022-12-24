@@ -21,50 +21,16 @@ import cats.effect.kernel.Async
 import cats.effect.kernel.Resource
 import cats.syntax.all._
 import d3.internal.Scheduler
+import d3.selection.namespace
 import org.scalajs.dom
 
 import concurrent.duration._
-import d3.selection.namespace
 
-trait TransitionManager[F[_]] {
+private[d3] trait TransitionManager[F[_]] {
 
   def next: F[Transition[F]]
 
   def run: F[Unit]
-
-}
-
-trait Transition[F[_]] {
-
-  def attr(
-      node: dom.Element,
-      key: String,
-      value: String,
-      duration: FiniteDuration,
-      delay: FiniteDuration
-  ): F[Unit]
-
-  def onComplete(cb: F[Unit]): F[Unit]
-
-}
-
-object Transition {
-
-  case class Attr(
-      name: namespace.Name,
-      valueStart: String,
-      valueEnd: String
-  )
-
-  case class Style(name: String, valueStart: String, valueEnd: String)
-
-  case class Ts(
-      node: dom.Element,
-      duration: FiniteDuration,
-      delay: FiniteDuration,
-      attr: Map[namespace.Name, Attr],
-      style: Map[String, Style]
-  )
 
 }
 
@@ -93,15 +59,116 @@ object TransitionManager {
       override def next: F[Transition[F]] = id.getAndUpdate(_ + 1).map { id =>
         new Transition[F] {
 
+          override def duration(
+              node: dom.Element,
+              duration: FiniteDuration
+          ): F[Unit] = ts.update {
+            _.updatedWith(id) {
+              case None =>
+                Some(
+                  Map(
+                    node -> Transition.Ts(
+                      node,
+                      duration = duration
+                    )
+                  )
+                )
+              case Some(m) =>
+                Some(
+                  m.updatedWith(node) {
+                    case Some(ts) => Some(ts.copy(duration = duration))
+                    case None =>
+                      Some(
+                        Transition.Ts(
+                          node,
+                          duration = duration
+                        )
+                      )
+                  }
+                )
+            }
+          }
+
+          override def delay(
+              node: dom.Element,
+              delay: FiniteDuration
+          ): F[Unit] = ts.update {
+            _.updatedWith(id) {
+              case None =>
+                Some(
+                  Map(
+                    node -> Transition.Ts(
+                      node,
+                      delay = delay
+                    )
+                  )
+                )
+              case Some(m) =>
+                Some(
+                  m.updatedWith(node) {
+                    case Some(ts) => Some(ts.copy(delay = delay))
+                    case None =>
+                      Some(
+                        Transition.Ts(
+                          node,
+                          delay = delay
+                        )
+                      )
+                  }
+                )
+            }
+          }
+
+          override def style(node: dom.Element, name: String, value: String)
+              : F[Unit] =
+            F.delay {
+              node.asInstanceOf[dom.HTMLElement].style.getPropertyValue(name)
+            }.flatMap { valueStart =>
+              ts.update {
+                _.updatedWith(id) {
+                  case Some(m0) =>
+                    Some(m0.updatedWith(node) {
+                      case Some(ts) =>
+                        Some(
+                          ts.copy(
+                            style = ts.style + (name -> Transition
+                              .Style(name, valueStart, value))
+                          )
+                        )
+                      case None =>
+                        Some(
+                          Transition.Ts(
+                            node,
+                            style = Map(
+                              name -> Transition
+                                .Style(name, valueStart, value)
+                            )
+                          )
+                        )
+                    })
+                  case None =>
+                    Some(
+                      Map(
+                        node -> Transition.Ts(
+                          node,
+                          style = Map(
+                            name -> Transition
+                              .Style(name, valueStart, value)
+                          )
+                        )
+                      )
+                    )
+                }
+              }
+            }
+
           override def onComplete(cb: F[Unit]): F[Unit] =
             oc.update(xs => (id -> cb) :: xs)
 
           override def attr(
               node: dom.Element,
               name: String,
-              value: String,
-              duration: FiniteDuration,
-              delay: FiniteDuration
+              value: String
           ): F[Unit] = {
             val fullname = namespace(name)
             F.delay {
@@ -111,15 +178,13 @@ object TransitionManager {
                   node.getAttributeNS(space, local)
               }
             }.flatMap { valueStart =>
-              ts.update { m =>
-                m.updatedWith(id) {
+              ts.update {
+                _.updatedWith(id) {
                   case Some(m0) =>
                     Some(m0.updatedWith(node) {
                       case Some(ts) =>
                         Some(
                           ts.copy(
-                            duration = duration,
-                            delay = delay,
                             attr = ts.attr + (fullname -> Transition
                               .Attr(fullname, valueStart, value))
                           )
@@ -128,13 +193,10 @@ object TransitionManager {
                         Some(
                           Transition.Ts(
                             node,
-                            duration,
-                            delay,
-                            Map(
+                            attr = Map(
                               fullname -> Transition
                                 .Attr(fullname, valueStart, value)
-                            ),
-                            Map.empty
+                            )
                           )
                         )
                     })
@@ -143,13 +205,10 @@ object TransitionManager {
                       Map(
                         node -> Transition.Ts(
                           node,
-                          duration,
-                          delay,
-                          Map(
+                          attr = Map(
                             fullname -> Transition
                               .Attr(fullname, valueStart, value)
-                          ),
-                          Map.empty
+                          )
                         )
                       )
                     )

@@ -73,8 +73,6 @@ class Example1[F[_]](implicit F: Async[F]) {
         .drain
     } yield ()
 
-    val transDuration = 750.millis
-
     val loop = (Stream.emit(()) ++ Stream
       .fixedDelay[F](1.second))
       .evalMap(_ => randomLetters)
@@ -93,19 +91,18 @@ class Example1[F[_]](implicit F: Async[F]) {
               .attr("y", "0".some)
               .text((_, d, _, _) => d)
               .transition
-              .attr("y", "25", transDuration, 0.seconds),
+              .duration(500.millis)
+              .attr("y", "25"),
             // update
             _.attr("fill", "black".some).transition
               .attr(
                 "x",
-                (_, _, i, _) => s"${16 * i}",
-                transDuration,
-                0.seconds
+                (_, _, i, _) => s"${16 * i}"
               ),
             // exit
             _.attr("fill", "brown".some).transition
-              .attr("y", "50", transDuration, 0.seconds)
-              .attr("opacity", "0", transDuration, 0.seconds)
+              .attr("y", "50")
+              .attr("opacity", "0")
               .remove
           )
           .compile
@@ -119,9 +116,8 @@ class Example1[F[_]](implicit F: Async[F]) {
   }
 
   def demo2: F[Unit] = Random.scalaUtilRandom[F].flatMap { rng =>
-    val genData = rng.nextDouble.map(_ * 2.0 * math.Pi).replicateA(3)
+    val genData = rng.nextDouble.map(_ * 2.0 * math.Pi).replicateA(8)
     val radius = 100.0
-    val transitionDuration = 750.millis
 
     val setup = for {
       _ <- d3
@@ -170,17 +166,14 @@ class Example1[F[_]](implicit F: Async[F]) {
                 .attr("cy", "0".some)
             )
             .transition
+            .delay((_, d, _, _) => (d * 100.0).millis)
             .attr(
               "cx",
-              (_, d, _, _) => s"${radius * math.cos(d)}",
-              transitionDuration,
-              0.seconds
+              (_, d, _, _) => s"${radius * math.cos(d)}"
             )
             .attr(
               "cy",
-              (_, d, _, _) => s"${radius * math.sin(d)}",
-              transitionDuration,
-              0.seconds
+              (_, d, _, _) => s"${radius * math.sin(d)}"
             )
             .compile
             .drain
@@ -193,9 +186,9 @@ class Example1[F[_]](implicit F: Async[F]) {
   }
 
   def demo3: F[Unit] = Dispatcher.sequential[F].use { dispatcher =>
-    val width = "400"
+    val width = "150"
     val height = "50"
-    val data = List("1", "2", "3", "4", "5", "6", "7", "8")
+    val data = List("1", "2", "3")
 
     val setup = for {
       _ <- d3

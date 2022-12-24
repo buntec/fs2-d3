@@ -73,15 +73,11 @@ class Example2[F[_]](implicit F: Async[F]) {
           .transition
           .attr(
             "cx",
-            (_, d, _, _) => s"${radius * math.cos(d)}",
-            transitionDuration,
-            0.seconds
+            (_, d, _, _) => s"${radius * math.cos(d)}"
           )
           .attr(
             "cy",
-            (_, d, _, _) => s"${radius * math.sin(d)}",
-            transitionDuration,
-            0.seconds
+            (_, d, _, _) => s"${radius * math.sin(d)}"
           )
           .compile
           .drain

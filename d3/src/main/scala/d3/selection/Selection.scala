@@ -39,10 +39,9 @@ import cats.syntax.all._
 import d3.transition.TransitionManager
 import org.scalajs.dom
 
-import scala.concurrent.duration.FiniteDuration
-
 import scalajs.js
 import Selection._
+import scala.concurrent.duration.FiniteDuration
 
 /*
  *
@@ -349,51 +348,77 @@ object Selection {
       private val sel: Selection[F, N, D, PN, PD]
   ) {
 
-    def selection: Selection[F, N, D, PN, PD] = sel
+    def attr(
+        name: String,
+        value: String
+    ): TransitionOps[F, N, D, PN, PD] =
+      new TransitionOps(
+        Continue(
+          sel,
+          AttrTransitionFn(
+            name,
+            (_: N, _: D, _: Int, _: List[N]) => value
+          )
+        )
+      )
+
+    def attr(
+        name: String,
+        value: (N, D, Int, List[N]) => String
+    ): TransitionOps[F, N, D, PN, PD] =
+      new TransitionOps(
+        Continue(
+          sel,
+          AttrTransitionFn(
+            name,
+            value
+          )
+        )
+      )
 
     def compile: CompileOps[F, N, D, PN, PD] = sel.compile
 
-    def transition: TransitionOps[F, N, D, PN, PD] =
-      new TransitionOps(Continue(sel, NewTransition()))
+    def delay(
+        delay: FiniteDuration
+    ): TransitionOps[F, N, D, PN, PD] =
+      new TransitionOps(
+        Continue(
+          sel,
+          TransitionDelayFn((_: N, _: D, _: Int, _: List[N]) => delay)
+        )
+      )
+
+    def delay(
+        delay: (N, D, Int, List[N]) => FiniteDuration
+    ): TransitionOps[F, N, D, PN, PD] =
+      new TransitionOps(
+        Continue(sel, TransitionDelayFn(delay))
+      )
+
+    def duration(
+        duration: FiniteDuration
+    ): TransitionOps[F, N, D, PN, PD] =
+      new TransitionOps(
+        Continue(
+          sel,
+          TransitionDurationFn((_: N, _: D, _: Int, _: List[N]) => duration)
+        )
+      )
+
+    def duration(
+        duration: (N, D, Int, List[N]) => FiniteDuration
+    ): TransitionOps[F, N, D, PN, PD] =
+      new TransitionOps(
+        Continue(sel, TransitionDurationFn(duration))
+      )
 
     def remove: TransitionOps[F, N, D, PN, PD] =
       new TransitionOps(Continue(sel, RemoveAfterTransition()))
 
-    def attr(
-        name: String,
-        value: String,
-        duration: FiniteDuration,
-        delay: FiniteDuration
-    ): TransitionOps[F, N, D, PN, PD] =
-      new TransitionOps(
-        Continue(
-          sel,
-          AttrTransitionFn(
-            name,
-            (_: N, _: D, _: Int, _: List[N]) => value,
-            duration,
-            delay
-          )
-        )
-      )
+    def selection: Selection[F, N, D, PN, PD] = sel
 
-    def attr(
-        name: String,
-        value: (N, D, Int, List[N]) => String,
-        duration: FiniteDuration,
-        delay: FiniteDuration
-    ): TransitionOps[F, N, D, PN, PD] =
-      new TransitionOps(
-        Continue(
-          sel,
-          AttrTransitionFn(
-            name,
-            value,
-            duration,
-            delay
-          )
-        )
-      )
+    def transition: TransitionOps[F, N, D, PN, PD] =
+      new TransitionOps(Continue(sel, NewTransition()))
 
   }
 
@@ -520,7 +545,8 @@ object Selection {
                           )
                         )
                       }
-                  case AttrTransitionFn(name, value, duration, delay) =>
+
+                  case AttrTransitionFn(name, value) =>
                     val fn =
                       value.asInstanceOf[(Any, Any, Any, Any) => String]
                     log("Step=AttrTransitionFn") *>
@@ -533,9 +559,47 @@ object Selection {
                                 trans.attr(
                                   n.asInstanceOf[dom.Element],
                                   name,
-                                  fn(n, d, i, group),
-                                  duration,
-                                  delay
+                                  fn(n, d, i, group)
+                                )
+                              }
+                            )
+                          )
+                        )
+                      }
+
+                  case TransitionDurationFn(duration) =>
+                    val fn = duration
+                      .asInstanceOf[(Any, Any, Any, Any) => FiniteDuration]
+                    log("Step=TransitionDurationFn") *>
+                      transRef.get.flatMap { trans =>
+                        F.defer(
+                          go(
+                            Continue(
+                              t,
+                              Each { (n: N, d: D, i: Int, group: List[N]) =>
+                                trans.duration(
+                                  n.asInstanceOf[dom.Element],
+                                  fn(n, d, i, group)
+                                )
+                              }
+                            )
+                          )
+                        )
+                      }
+
+                  case TransitionDelayFn(delay) =>
+                    val fn = delay
+                      .asInstanceOf[(Any, Any, Any, Any) => FiniteDuration]
+                    log("Step=TransitionDurationFn") *>
+                      transRef.get.flatMap { trans =>
+                        F.defer(
+                          go(
+                            Continue(
+                              t,
+                              Each { (n: N, d: D, i: Int, group: List[N]) =>
+                                trans.delay(
+                                  n.asInstanceOf[dom.Element],
+                                  fn(n, d, i, group)
                                 )
                               }
                             )
@@ -1379,9 +1443,15 @@ object Selection {
 
   private case class AttrTransitionFn[F[_], N, D, PN, PD](
       name: String,
-      value: (N, D, Int, List[N]) => String,
-      duration: FiniteDuration,
-      delay: FiniteDuration
+      value: (N, D, Int, List[N]) => String
+  ) extends Action[F, N, D, PN, PD]
+
+  private case class TransitionDurationFn[F[_], N, D, PN, PD](
+      duration: (N, D, Int, List[N]) => FiniteDuration
+  ) extends Action[F, N, D, PN, PD]
+
+  private case class TransitionDelayFn[F[_], N, D, PN, PD](
+      delay: (N, D, Int, List[N]) => FiniteDuration
   ) extends Action[F, N, D, PN, PD]
 
   private case class Append[F[_], N, D, PN, PD](name: String)
