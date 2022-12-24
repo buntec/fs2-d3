@@ -1016,23 +1016,24 @@ object Selection {
                                   ]]
                                 val elm = n.asInstanceOf[dom.Element]
                                 namespace(name) match {
-                                  case Left(name0) =>
+                                  case namespace.Name.Simple(name0) =>
                                     fn(n, d, i, group) match {
                                       case Some(value) =>
                                         elm.setAttribute(name0, value)
                                       case None => elm.removeAttribute(name0)
                                     }
-                                  case Right(ns) =>
+                                  case namespace.Name
+                                        .Namespaced(space, local) =>
                                     fn(n, d, i, group) match {
                                       case Some(value) =>
                                         elm.setAttributeNS(
-                                          ns.space,
-                                          ns.local,
+                                          space,
+                                          local,
                                           value
                                         )
                                       case None =>
                                         elm
-                                          .removeAttributeNS(ns.space, ns.local)
+                                          .removeAttributeNS(space, local)
                                     }
                                 }
                               }

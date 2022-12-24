@@ -38,14 +38,14 @@ object creator {
 
   def apply(name: String, parent: dom.Node) = {
     namespace(name) match {
-      case Left(name0) =>
+      case namespace.Name.Simple(name0) =>
         creatorInherited(name0, parent)
-      case Right(ns) =>
+      case ns @ namespace.Name.Namespaced(_, _) =>
         creatorFixed(ns, parent)
     }
   }
 
-  private def creatorFixed(ns: namespace.Namespaced, parent: dom.Node) = {
+  private def creatorFixed(ns: namespace.Name.Namespaced, parent: dom.Node) = {
     parent.ownerDocument.createElementNS(ns.space, ns.local)
   }
 

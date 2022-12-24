@@ -34,9 +34,17 @@ package d3.selection
 
 object namespace {
 
-  case class Namespaced(space: String, local: String)
+  sealed trait Name
 
-  def apply(name: String): Either[String, Namespaced] = {
+  object Name {
+
+    case class Namespaced(space: String, local: String) extends Name
+
+    case class Simple(name: String) extends Name
+
+  }
+
+  def apply(name: String): Name = {
     val i = name.indexOf(":")
     val (prefix, name0) = if (i >= 0) {
       val prefix = name.take(i)
@@ -45,8 +53,8 @@ object namespace {
       (name, name)
     }
     namespaces.map.get(prefix) match {
-      case None     => Left(name0)
-      case Some(ns) => Right(Namespaced(ns, name0))
+      case None     => Name.Simple(name0)
+      case Some(ns) => Name.Namespaced(ns, name0)
     }
   }
 

@@ -24,6 +24,7 @@ import d3.internal.Scheduler
 import org.scalajs.dom
 
 import concurrent.duration._
+import d3.selection.namespace
 
 trait TransitionManager[F[_]] {
 
@@ -47,6 +48,26 @@ trait Transition[F[_]] {
 
 }
 
+object Transition {
+
+  case class Attr(
+      name: namespace.Name,
+      valueStart: String,
+      valueEnd: String
+  )
+
+  case class Style(name: String, valueStart: String, valueEnd: String)
+
+  case class Ts(
+      node: dom.Element,
+      duration: FiniteDuration,
+      delay: FiniteDuration,
+      attr: Map[namespace.Name, Attr],
+      style: Map[String, Style]
+  )
+
+}
+
 object TransitionManager {
 
   def interpolator(value0: String, value1: String) = {
@@ -62,11 +83,11 @@ object TransitionManager {
 
   def apply[F[_]](implicit F: Async[F]): Resource[F, TransitionManager[F]] =
     for {
-
-      ts <- F.ref(List.empty[(Int, F[Unit])]).toResource
-      oc <- F.ref(List.empty[(Int, F[Unit])]).toResource
-      id <- F.ref(0).toResource
-
+      ts <- F
+        .ref(Map.empty[Long, Map[dom.Element, Transition.Ts]])
+        .toResource
+      oc <- F.ref(List.empty[(Long, F[Unit])]).toResource
+      id <- F.ref(0L).toResource
     } yield new TransitionManager[F] {
 
       override def next: F[Transition[F]] = id.getAndUpdate(_ + 1).map { id =>
@@ -82,43 +103,120 @@ object TransitionManager {
               duration: FiniteDuration,
               delay: FiniteDuration
           ): F[Unit] = {
-            val task = F.delay(node.getAttribute(name)).flatMap { value0 =>
-              val interp = interpolator(value0, value)
-              F.sleep(delay) >>
-                Scheduler.awakeEveryAnimationFrame
-                  .takeThrough(_ < duration)
-                  .evalMap { elapsed =>
-                    val t = math
-                      .min(1.0, elapsed.toMillis.toDouble / duration.toMillis)
-                    val interpolatedValue = interp(d3.ease.cubicInOut(t))
-                    F.delay(
-                      node.setAttribute(name, interpolatedValue)
+            val fullname = namespace(name)
+            F.delay {
+              fullname match {
+                case namespace.Name.Simple(name0) => node.getAttribute(name0)
+                case namespace.Name.Namespaced(space, local) =>
+                  node.getAttributeNS(space, local)
+              }
+            }.flatMap { valueStart =>
+              ts.update { m =>
+                m.updatedWith(id) {
+                  case Some(m0) =>
+                    Some(m0.updatedWith(node) {
+                      case Some(ts) =>
+                        Some(
+                          ts.copy(
+                            duration = duration,
+                            delay = delay,
+                            attr = ts.attr + (fullname -> Transition
+                              .Attr(fullname, valueStart, value))
+                          )
+                        )
+                      case None =>
+                        Some(
+                          Transition.Ts(
+                            node,
+                            duration,
+                            delay,
+                            Map(
+                              fullname -> Transition
+                                .Attr(fullname, valueStart, value)
+                            ),
+                            Map.empty
+                          )
+                        )
+                    })
+                  case None =>
+                    Some(
+                      Map(
+                        node -> Transition.Ts(
+                          node,
+                          duration,
+                          delay,
+                          Map(
+                            fullname -> Transition
+                              .Attr(fullname, valueStart, value)
+                          ),
+                          Map.empty
+                        )
+                      )
                     )
-                  }
-                  .compile
-                  .drain
+                }
+              }
             }
-
-            ts.update(tasks => (id, task) :: tasks)
-
           }
-
         }
       }
 
-      override def run: F[Unit] =
-        oc.get.flatMap { onCompletes =>
-          val ocById =
-            onCompletes.groupBy(_._1).view.mapValues(_.map(_._2)).toMap
-          ts.get.flatMap { tasks =>
-            tasks.groupBy(_._1).toList.sortBy(_._1).traverse_ {
-              case (id, tasks) =>
-                tasks
-                  .map(_._2)
-                  .parSequence_ *> ocById.get(id).fold(F.unit)(_.parSequence_)
+      private def run(m: Map[dom.Element, Transition.Ts]): F[Unit] = {
+        val totalDuration = m.map { case (_, ts) => ts.duration + ts.delay }.max
+        Scheduler.awakeEveryAnimationFrame
+          .takeThrough(_ < totalDuration)
+          .evalMap { elapsed =>
+            m.toList.traverse_ { case (elm, ts) =>
+              F.whenA(elapsed >= ts.delay) {
+                val t = math
+                  .min(
+                    1.0,
+                    (elapsed - ts.delay).toMillis.toDouble / ts.duration.toMillis
+                  )
+
+                val setAttr = ts.attr.toList.traverse_ { case (name, attr) =>
+                  val interpolatedValue =
+                    interpolator(attr.valueStart, attr.valueEnd)(
+                      d3.ease.cubicInOut(t)
+                    )
+                  F.delay(
+                    name match {
+                      case namespace.Name.Simple(name) =>
+                        elm.setAttribute(name, interpolatedValue)
+                      case namespace.Name.Namespaced(space, local) =>
+                        elm.setAttributeNS(space, local, interpolatedValue)
+                    }
+                  )
+                }
+
+                val setStyle = ts.style.toList.traverse_ { case (name, style) =>
+                  val interpolatedValue =
+                    interpolator(style.valueStart, style.valueEnd)(
+                      d3.ease.cubicInOut(t)
+                    )
+                  F.delay(
+                    elm
+                      .asInstanceOf[dom.HTMLElement]
+                      .style
+                      .setProperty(name, interpolatedValue, "")
+                  )
+                }
+
+                setAttr >> setStyle
+              }
             }
           }
+          .compile
+          .drain
+      }
+
+      override def run: F[Unit] = oc.get.flatMap { oc =>
+        val ocm = oc.groupBy(_._1).map { case (k, v) => k -> v.map(_._2) }
+        ts.get.flatMap { m =>
+          m.toList.sortBy(_._1).traverse_ { case (id, ts) =>
+            run(ts) >> ocm.get(id).fold(F.unit)(_.parSequence_)
+          }
         }
+      }
 
     }
 
