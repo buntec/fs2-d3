@@ -29,7 +29,6 @@ class Example2[F[_]](implicit F: Async[F]) {
   def run: F[Unit] = Random.scalaUtilRandom[F].flatMap { rng =>
     val genData = rng.nextDouble.map(_ * 2.0 * math.Pi).replicateA(3)
     val radius = 100.0
-    val transitionDuration = 750.millis
 
     val setup = for {
       _ <- d3

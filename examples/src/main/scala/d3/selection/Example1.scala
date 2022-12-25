@@ -48,7 +48,6 @@ class Example1[F[_]](implicit F: Async[F]) {
 
   def demo1: F[Unit] = Random.scalaUtilRandom[F].flatMap { rng =>
     val letters = ('a' to 'z').toList.map(_.toString)
-
     val randomLetters = rng.betweenInt(6, 26).flatMap { n =>
       rng.shuffleList(letters).map(_.take(n))
     }
@@ -63,61 +62,66 @@ class Example1[F[_]](implicit F: Async[F]) {
         .text("An example using selection + transition")
         .compile
         .drain
-      _ <- d3
+      svgOpt <- d3
         .select("#demo-1")
         .append("svg")
         .attr("width", width.some)
         .attr("height", height.some)
         .attr("viewBox", s"0 0 $width $height".some)
         .compile
+        .node[F, dom.Element]
+      svg <- F.fromOption(svgOpt, new Exception("missing svg element"))
+    } yield svg
+
+    setup.flatMap { svg =>
+      (Stream.emit(()) ++ Stream
+        .fixedDelay[F](1.second))
+        .evalMap(_ => randomLetters)
+        .evalMap { data =>
+          d3.select[F, dom.Element, Nothing](svg)
+            .selectAll[dom.Element, String]("text")
+            .dataKeyed(data)(
+              (_, d, _, _) => d,
+              (_, d, _, _) => d
+            )
+            .join[F, dom.Element, String, dom.Element, Nothing](
+              // enter
+              _.append[dom.Element]("text")
+                .attr("fill", "green".some)
+                .attr("opacity", "1.0".some)
+                .attr("x", (_, _, i, _) => s"${16 * i}".some)
+                .attr("y", "0".some)
+                .text((_, d, _, _) => d)
+                .transition
+                .duration(500.millis)
+                .ease(d3.ease.easeBounce)
+                .attr("y", "25"),
+              // update
+              _.attr("fill", "black".some).transition
+                .attr(
+                  "x",
+                  (_, _, i, _) => s"${16 * i}"
+                ),
+              // exit
+              _.attr("fill", "brown".some).transition
+                .attr("y", "50")
+                .attr("opacity", "0")
+                .remove
+            )
+            .compile
+            .drain
+        }
+        .compile
         .drain
-    } yield ()
-
-    val loop = (Stream.emit(()) ++ Stream
-      .fixedDelay[F](1.second))
-      .evalMap(_ => randomLetters)
-      .evalMap { data =>
-        d3.select[F, dom.Element, Nothing]("#demo-1 svg")
-          .selectAll[dom.Element, String]("text")
-          .dataKeyed(data)(
-            (_, d, _, _) => d,
-            (_, d, _, _) => d
-          )
-          .join[F, dom.Element, String, dom.Element, Nothing](
-            _.append[dom.Element]("text")
-              .attr("fill", "green".some)
-              .attr("opacity", "1.0".some)
-              .attr("x", (_, _, i, _) => s"${16 * i}".some)
-              .attr("y", "0".some)
-              .text((_, d, _, _) => d)
-              .transition
-              .duration(500.millis)
-              .attr("y", "25"),
-            // update
-            _.attr("fill", "black".some).transition
-              .attr(
-                "x",
-                (_, _, i, _) => s"${16 * i}"
-              ),
-            // exit
-            _.attr("fill", "brown".some).transition
-              .attr("y", "50")
-              .attr("opacity", "0")
-              .remove
-          )
-          .compile
-          .drain
-      }
-      .compile
-      .drain
-
-    setup >> loop
+    }
 
   }
 
   def demo2: F[Unit] = Random.scalaUtilRandom[F].flatMap { rng =>
-    val genData = rng.nextDouble.map(_ * 2.0 * math.Pi).replicateA(8)
+    val genData = rng.nextDouble.replicateA(8)
     val radius = 100.0
+    val colors = d3.color.named.keySet.toVector
+    val nColors = colors.length
 
     val setup = for {
       _ <- d3
@@ -159,6 +163,7 @@ class Example1[F[_]](implicit F: Async[F]) {
             .selectAll("circle")
             .data(data)
             .join[F, dom.Element, Double, dom.Element, Nothing](
+              // enter
               _.append[dom.Element]("circle")
                 .attr("r", "7".some)
                 .attr("fill", "gray".some)
@@ -166,14 +171,19 @@ class Example1[F[_]](implicit F: Async[F]) {
                 .attr("cy", "0".some)
             )
             .transition
-            .delay((_, d, _, _) => (d * 100.0).millis)
+            .delay((_, d, _, _) => (d * 500.0).millis)
             .attr(
               "cx",
-              (_, d, _, _) => s"${radius * math.cos(d)}"
+              (_, d, _, _) => s"${radius * math.cos(d * 2 * math.Pi)}"
             )
             .attr(
               "cy",
-              (_, d, _, _) => s"${radius * math.sin(d)}"
+              (_, d, _, _) => s"${radius * math.sin(d * 2 * math.Pi)}"
+            )
+            .attr(
+              "fill",
+              (_, d, _, _) =>
+                colors(math.min(math.round(d * nColors).toInt, nColors - 1))
             )
             .compile
             .drain
@@ -215,6 +225,7 @@ class Example1[F[_]](implicit F: Async[F]) {
         .selectAll("circle")
         .data(data)
         .join[F, dom.Element, String, dom.Element, Nothing](
+          // enter
           _.append[dom.Element]("circle")
             .attr("r", "10".some)
             .attr("fill", "gray".some)

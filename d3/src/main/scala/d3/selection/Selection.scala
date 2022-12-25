@@ -39,9 +39,10 @@ import cats.syntax.all._
 import d3.transition.TransitionManager
 import org.scalajs.dom
 
+import scala.concurrent.duration.FiniteDuration
+
 import scalajs.js
 import Selection._
-import scala.concurrent.duration.FiniteDuration
 
 /*
  *
@@ -405,6 +406,23 @@ object Selection {
         )
       )
 
+    def ease(
+        ease: Double => Double
+    ): TransitionOps[F, N, D, PN, PD] =
+      new TransitionOps(
+        Continue(
+          sel,
+          TransitionEaseFn((_: N, _: D, _: Int, _: List[N]) => ease)
+        )
+      )
+
+    def ease(
+        ease: (N, D, Int, List[N]) => (Double => Double)
+    ): TransitionOps[F, N, D, PN, PD] =
+      new TransitionOps(
+        Continue(sel, TransitionEaseFn(ease))
+      )
+
     def duration(
         duration: (N, D, Int, List[N]) => FiniteDuration
     ): TransitionOps[F, N, D, PN, PD] =
@@ -587,10 +605,30 @@ object Selection {
                         )
                       }
 
+                  case TransitionEaseFn(ease) =>
+                    val fn = ease
+                      .asInstanceOf[(Any, Any, Any, Any) => (Double => Double)]
+                    log("Step=TransitionEaseFn") *>
+                      transRef.get.flatMap { trans =>
+                        F.defer(
+                          go(
+                            Continue(
+                              t,
+                              Each { (n: N, d: D, i: Int, group: List[N]) =>
+                                trans.ease(
+                                  n.asInstanceOf[dom.Element],
+                                  fn(n, d, i, group)
+                                )
+                              }
+                            )
+                          )
+                        )
+                      }
+
                   case TransitionDelayFn(delay) =>
                     val fn = delay
                       .asInstanceOf[(Any, Any, Any, Any) => FiniteDuration]
-                    log("Step=TransitionDurationFn") *>
+                    log("Step=TransitionDelayFn") *>
                       transRef.get.flatMap { trans =>
                         F.defer(
                           go(
@@ -1448,6 +1486,10 @@ object Selection {
 
   private case class TransitionDurationFn[F[_], N, D, PN, PD](
       duration: (N, D, Int, List[N]) => FiniteDuration
+  ) extends Action[F, N, D, PN, PD]
+
+  private case class TransitionEaseFn[F[_], N, D, PN, PD](
+      ease: (N, D, Int, List[N]) => (Double => Double)
   ) extends Action[F, N, D, PN, PD]
 
   private case class TransitionDelayFn[F[_], N, D, PN, PD](

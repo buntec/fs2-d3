@@ -1,6 +1,3 @@
 package d3
 
-package object interpolate {
-  
-}
-
+package object interpolate {}

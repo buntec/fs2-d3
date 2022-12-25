@@ -18,7 +18,7 @@ package object color {
   private[color] val reHslaPercent =
     s"^hsla\\(${reN},${reP},${reP},${reN}\\)$$".r
 
-  private[color] val named = Map(
+  val named: Map[String, Int] = Map(
     "aliceblue" -> 0xf0f8ff,
     "antiquewhite" -> 0xfaebd7,
     "aqua" -> 0x00ffff,
@@ -169,7 +169,7 @@ package object color {
     "yellowgreen" -> 0x9acd32
   )
 
-  def apply(format0: String): Option[Color] = {
+  def fromString(format0: String): Option[Color] = {
     val format = format0.trim.toLowerCase
     (format match {
       case reHex(a) => {
@@ -281,5 +281,32 @@ package object color {
     else if (s <= 0) Color.Hsl(Double.NaN, s, l, a)
     else Color.Hsl(h, s, l, a)
   }
+
+  def clampa(opacity: Double): Double = {
+    if (opacity.isNaN) 1
+    else math.max(0, math.min(1, opacity))
+  }
+
+  def clampi(value: Double): Int = {
+    if (value.isNaN) 0
+    else math.max(0, math.min(255, math.round(value).toInt))
+  }
+
+  def clamph(value: Double): Double = {
+    val value0 = if (value.isNaN) 0 else value % 360
+    if (value0 < 0) value0 + 360 else value0
+  }
+
+  def clampt(value: Double): Double = {
+    if (value.isNaN) 0
+    else math.max(0, math.min(1, value))
+  }
+
+  def hsl2rgb(h: Double, m1: Double, m2: Double): Double = {
+    if (h < 60) m1 + (m2 - m1) * h / 60
+    else if (h < 180) m2
+    else if (h < 240) m1 + (m2 - m1) * (240 - h) / 60
+    else m1
+  } * 255
 
 }

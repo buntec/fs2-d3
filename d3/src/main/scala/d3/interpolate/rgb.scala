@@ -1,5 +1,6 @@
 package d3.interpolate
 
+import cats.syntax.all._
 import d3.color.Color
 
 object rgb {
@@ -12,6 +13,14 @@ object rgb {
     val opacity = color.nogamma(start.opacity, end.opacity)
     (t: Double) => {
       Color.Rgb(r(t), g(t), b(t), opacity(t))
+    }
+  }
+
+  def apply(start: String, end: String): Option[Double => String] = {
+    (d3.color.fromString(start), d3.color.fromString(end)).tupled.map {
+      case (start0, end0) =>
+        val fn = apply(start0.rgb, end0.rgb)
+        (t: Double) => fn(t).toString
     }
   }
 

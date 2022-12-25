@@ -36,17 +36,6 @@ private[d3] trait TransitionManager[F[_]] {
 
 object TransitionManager {
 
-  def interpolator(value0: String, value1: String) = {
-    if (value0 == null) { (t: Double) =>
-      if (t < 1) value0 else value1
-    } else {
-      (value0.toDoubleOption, value1.toDoubleOption).tupled match {
-        case None           => (t: Double) => if (t < 1) value0 else value1
-        case Some((x0, x1)) => (t: Double) => (t * x1 + (1.0 - t) * x0).toString
-      }
-    }
-  }
-
   def apply[F[_]](implicit F: Async[F]): Resource[F, TransitionManager[F]] =
     for {
       ts <- F
@@ -58,6 +47,36 @@ object TransitionManager {
 
       override def next: F[Transition[F]] = id.getAndUpdate(_ + 1).map { id =>
         new Transition[F] {
+
+          override def ease(
+              node: dom.Element,
+              ease: Double => Double
+          ): F[Unit] = ts.update {
+            _.updatedWith(id) {
+              case None =>
+                Some(
+                  Map(
+                    node -> Transition.Ts(
+                      node,
+                      ease = ease
+                    )
+                  )
+                )
+              case Some(m) =>
+                Some(
+                  m.updatedWith(node) {
+                    case Some(ts) => Some(ts.copy(ease = ease))
+                    case None =>
+                      Some(
+                        Transition.Ts(
+                          node,
+                          ease = ease
+                        )
+                      )
+                  }
+                )
+            }
+          }
 
           override def duration(
               node: dom.Element,
@@ -234,8 +253,8 @@ object TransitionManager {
 
                 val setAttr = ts.attr.toList.traverse_ { case (name, attr) =>
                   val interpolatedValue =
-                    interpolator(attr.valueStart, attr.valueEnd)(
-                      d3.ease.cubicInOut(t)
+                    interpolate(attr.valueStart, attr.valueEnd)(
+                      ts.ease(t)
                     )
                   F.delay(
                     name match {
@@ -249,8 +268,8 @@ object TransitionManager {
 
                 val setStyle = ts.style.toList.traverse_ { case (name, style) =>
                   val interpolatedValue =
-                    interpolator(style.valueStart, style.valueEnd)(
-                      d3.ease.cubicInOut(t)
+                    interpolate(style.valueStart, style.valueEnd)(
+                      ts.ease(t)
                     )
                   F.delay(
                     elm

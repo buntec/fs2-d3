@@ -34,12 +34,30 @@ package d3
 
 package object ease {
 
-  def cubicInOut(t: Double): Double = {
-    if (t < 0.5) {
-      4 * t * t * t
-    } else {
-      1 - math.pow(-2 * t + 2, 3) / 2
-    }
-  }
+  val easeBounce: Double => Double = bounce.bounceOut
+
+  val easeBounceIn: Double => Double = bounce.bounceIn
+
+  val easeBounceOut: Double => Double = bounce.bounceOut
+
+  val easeBounceInOut: Double => Double = bounce.bounceInOut
+
+  val easeCubicIn: Double => Double = cubic.cubicIn
+
+  val easeCubicOut: Double => Double = cubic.cubicOut
+
+  val easeCubic: Double => Double = cubic.cubicInOut
+
+  val easeCubicInOut: Double => Double = cubic.cubicInOut
+
+  val easeLinear: Double => Double = t => t
+
+  val easeQuad: Double => Double = quad.quadInOut
+
+  val easeQuadInOut: Double => Double = quad.quadInOut
+
+  val easeQuadIn: Double => Double = quad.quadIn
+
+  val easeQuadOut: Double => Double = quad.quadOut
 
 }

@@ -33,6 +33,8 @@ private[d3] trait Transition[F[_]] {
 
   def duration(node: dom.Element, duration: FiniteDuration): F[Unit]
 
+  def ease(node: dom.Element, ease: Double => Double): F[Unit]
+
   def onComplete(cb: F[Unit]): F[Unit]
 
   def style(
@@ -58,7 +60,8 @@ private[d3] object Transition {
       duration: FiniteDuration = 750.millis,
       delay: FiniteDuration = 0.millis,
       attr: Map[namespace.Name, Attr] = Map.empty,
-      style: Map[String, Style] = Map.empty
+      style: Map[String, Style] = Map.empty,
+      ease: Double => Double = d3.ease.easeCubic
   )
 
 }
