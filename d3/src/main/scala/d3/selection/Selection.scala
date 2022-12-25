@@ -834,76 +834,55 @@ object Selection {
                     log("Step=Join") *> {
                       val enterSection = Enter.nodes(enter.get)
 
-                      val s1 =
-                        onEnter
-                          .asInstanceOf[
-                            Any => Selection[F, N0, D0, PN0, PD0]
-                          ](
-                            enterSection.asInstanceOf[Any]
-                          )
+                      val doEnter = onEnter.asInstanceOf[
+                        Any => Selection[F, N0, D0, PN0, PD0]
+                      ](enterSection)
 
-                      val s2 =
-                        onUpdate
-                          .asInstanceOf[
-                            Any => Selection[F, N0, D0, PN0, PD0]
-                          ](
-                            t.asInstanceOf[Any]
-                          )
+                      val doUpdate = onUpdate.asInstanceOf[
+                        Any => Selection[F, N0, D0, PN0, PD0]
+                      ](t)
 
                       val doExit = onExit
                         .asInstanceOf[Any => Selection[F, N0, D0, PN0, PD0]](
-                          Terminal(exit.get, parents).asInstanceOf[Any]
+                          Terminal(exit.get, parents)
                         )
                         .compile
                         .drain
 
-                      F.defer((run(s1), run(s2), doExit).parTupled).flatMap {
-                        case (
-                              Terminal(groups0, parents, _, _),
-                              Terminal(groups1, _, _, _),
-                              _
-                            ) =>
-                          F.delay {
-                            val groups0Arr = groups0.toArray
-                            val groups1Arr = groups1.toArray
-                            val m0 = groups0Arr.length
-                            val m1 = groups1Arr.length
-                            val m = math.min(m0, m1)
-                            val merges = new Array[Array[Any]](m0)
-                            var j = 0
-                            while (j < m) {
-                              val group0 = groups0Arr(j)
-                              val group1 = groups1Arr(j)
-                              val n = group0.length
-                              merges(j) = new Array[Any](n)
-                              val merge = merges(j)
-                              var i = 0
-                              while (i < n) {
-                                if (group0(i) != null) {
-                                  merge(i) = group0(i)
-                                } else {
-                                  merge(i) = group1(i)
+                      F.defer((run(doEnter), run(doUpdate), doExit).parTupled)
+                        .flatMap {
+                          case (
+                                Terminal(groups0, parents, _, _),
+                                Terminal(groups1, _, _, _),
+                                _
+                              ) =>
+                            F.delay {
+                              val mergedGroups = groups0
+                                .padZipWith(groups1) {
+                                  case (Some(group0), Some(group1)) => {
+                                    val mergedGroup = group0
+                                      .padZipWith(group1) {
+                                        case (Some(a), None) => Some(a)
+                                        case (Some(a), _) if (a != null) =>
+                                          Some(a)
+                                        case (_, Some(b)) => Some(b)
+                                        case (None, None) => None
+                                      }
+                                      .flatten
+                                    Some(mergedGroup)
+                                  }
+                                  case (Some(group0), None) => Some(group0)
+                                  case (None, _)            => None
                                 }
-                                i += 1
-                              }
-                              j += 1
-                            }
-                            while (j < m0) {
-                              merges(j) = groups0Arr(j).toArray
-                              j += 1
-                            }
-                            Terminal(
-                              merges
-                                .map(_.toList)
-                                .toList
-                                .asInstanceOf[List[List[N0]]],
-                              parents
+                                .flatten
+                              Terminal(
+                                mergedGroups,
+                                parents
+                              ).asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
+                            }.flatMap(terminal =>
+                              go(Continue(terminal, Order()))
                             )
-                              .asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
-                          }.flatMap { terminal =>
-                            go(Continue(terminal, Order()))
-                          }
-                      }
+                        }
 
                     }
 
