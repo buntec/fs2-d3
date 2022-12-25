@@ -435,6 +435,34 @@ object Selection {
 
     def selection: Selection[F, N, D, PN, PD] = sel
 
+    def style(
+        name: String,
+        value: String
+    ): TransitionOps[F, N, D, PN, PD] =
+      new TransitionOps(
+        Continue(
+          sel,
+          StyleTransitionFn(
+            name,
+            (_: N, _: D, _: Int, _: List[N]) => value
+          )
+        )
+      )
+
+    def style(
+        name: String,
+        value: (N, D, Int, List[N]) => String
+    ): TransitionOps[F, N, D, PN, PD] =
+      new TransitionOps(
+        Continue(
+          sel,
+          StyleTransitionFn(
+            name,
+            value
+          )
+        )
+      )
+
     def transition: TransitionOps[F, N, D, PN, PD] =
       new TransitionOps(Continue(sel, NewTransition()))
 
@@ -576,6 +604,27 @@ object Selection {
                               t,
                               Each { (n: N, d: D, i: Int, group: List[N]) =>
                                 trans.attr(
+                                  n.asInstanceOf[dom.Element],
+                                  name,
+                                  value.asInstanceOf[
+                                    (Any, Any, Any, Any) => String
+                                  ](n, d, i, group)
+                                )
+                              }
+                            )
+                          )
+                        )
+                      }
+
+                  case StyleTransitionFn(name, value) =>
+                    log("Step=StyleTransitionFn") *>
+                      transRef.get.flatMap { trans =>
+                        F.defer(
+                          go(
+                            Continue(
+                              t,
+                              Each { (n: N, d: D, i: Int, group: List[N]) =>
+                                trans.style(
                                   n.asInstanceOf[dom.Element],
                                   name,
                                   value.asInstanceOf[
@@ -1466,6 +1515,11 @@ object Selection {
   ) extends Action[F, N, D, PN, PD]
 
   private case class AttrTransitionFn[F[_], N, D, PN, PD](
+      name: String,
+      value: (N, D, Int, List[N]) => String
+  ) extends Action[F, N, D, PN, PD]
+
+  private case class StyleTransitionFn[F[_], N, D, PN, PD](
       name: String,
       value: (N, D, Int, List[N]) => String
   ) extends Action[F, N, D, PN, PD]
