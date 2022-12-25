@@ -469,7 +469,7 @@ object Selection {
       selection: Selection[F, N, D, PN, PD]
   )(implicit F: Async[F]): F[Terminal[F, N, D, PN, PD]] = {
 
-    def log(msg: String): F[Unit] =
+    def log(msg: => String): F[Unit] =
       F.whenA(d3.Configuration.logging)(F.delay(println(msg)))
 
     TransitionManager[F].use { tm =>
@@ -486,6 +486,7 @@ object Selection {
                     List(dom.document.documentElement.asInstanceOf[PN0])
                   Terminal(groups, parents)
                 }
+
             case SelectAll(selector) =>
               log("SelectAll") *>
                 F.delay(dom.document.querySelectorAll(selector)).map { nodes =>
@@ -494,6 +495,7 @@ object Selection {
                     List(dom.document.documentElement.asInstanceOf[PN0])
                   Terminal(groups, parents)
                 }
+
             case Continue(t @ Terminal(groups, parents, enter, exit), step) =>
               log(
                 s"""Continue=(Terminal, step)
@@ -541,6 +543,7 @@ object Selection {
                       Terminal(subgroups, parents)
                         .asInstanceOf[Terminal[F, N0, D0, PN0, PD0]]
                     }
+
                   case RemoveAfterTransition() =>
                     log("Step=RemoveAfterTransition") *>
                       transRef.get.flatMap { trans =>
@@ -565,8 +568,6 @@ object Selection {
                       }
 
                   case AttrTransitionFn(name, value) =>
-                    val fn =
-                      value.asInstanceOf[(Any, Any, Any, Any) => String]
                     log("Step=AttrTransitionFn") *>
                       transRef.get.flatMap { trans =>
                         F.defer(
@@ -577,7 +578,9 @@ object Selection {
                                 trans.attr(
                                   n.asInstanceOf[dom.Element],
                                   name,
-                                  fn(n, d, i, group)
+                                  value.asInstanceOf[
+                                    (Any, Any, Any, Any) => String
+                                  ](n, d, i, group)
                                 )
                               }
                             )
@@ -586,8 +589,6 @@ object Selection {
                       }
 
                   case TransitionDurationFn(duration) =>
-                    val fn = duration
-                      .asInstanceOf[(Any, Any, Any, Any) => FiniteDuration]
                     log("Step=TransitionDurationFn") *>
                       transRef.get.flatMap { trans =>
                         F.defer(
@@ -597,7 +598,9 @@ object Selection {
                               Each { (n: N, d: D, i: Int, group: List[N]) =>
                                 trans.duration(
                                   n.asInstanceOf[dom.Element],
-                                  fn(n, d, i, group)
+                                  duration.asInstanceOf[
+                                    (Any, Any, Any, Any) => FiniteDuration
+                                  ](n, d, i, group)
                                 )
                               }
                             )
@@ -606,8 +609,6 @@ object Selection {
                       }
 
                   case TransitionEaseFn(ease) =>
-                    val fn = ease
-                      .asInstanceOf[(Any, Any, Any, Any) => (Double => Double)]
                     log("Step=TransitionEaseFn") *>
                       transRef.get.flatMap { trans =>
                         F.defer(
@@ -617,7 +618,9 @@ object Selection {
                               Each { (n: N, d: D, i: Int, group: List[N]) =>
                                 trans.ease(
                                   n.asInstanceOf[dom.Element],
-                                  fn(n, d, i, group)
+                                  ease.asInstanceOf[
+                                    (Any, Any, Any, Any) => (Double => Double)
+                                  ](n, d, i, group)
                                 )
                               }
                             )
@@ -626,8 +629,6 @@ object Selection {
                       }
 
                   case TransitionDelayFn(delay) =>
-                    val fn = delay
-                      .asInstanceOf[(Any, Any, Any, Any) => FiniteDuration]
                     log("Step=TransitionDelayFn") *>
                       transRef.get.flatMap { trans =>
                         F.defer(
@@ -637,7 +638,9 @@ object Selection {
                               Each { (n: N, d: D, i: Int, group: List[N]) =>
                                 trans.delay(
                                   n.asInstanceOf[dom.Element],
-                                  fn(n, d, i, group)
+                                  delay.asInstanceOf[
+                                    (Any, Any, Any, Any) => FiniteDuration
+                                  ](n, d, i, group)
                                 )
                               }
                             )
@@ -646,11 +649,9 @@ object Selection {
                       }
 
                   case NewTransition() =>
-                    log("Step=NewTransition") *>
-                      tm.next.flatMap { newTrans =>
-                        transRef.set(newTrans)
-                      } *>
-                      F.pure(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
+                    log("Step=NewTransition") *> tm.next
+                      .flatMap(transRef.set(_)) *> F
+                      .pure(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
 
                   case Remove() =>
                     log("Step=Remove") *>
@@ -785,9 +786,7 @@ object Selection {
                     log("Step=Order") *>
                       F.delay {
                         groups
-                          .map(
-                            _.filter(_ != null).asInstanceOf[List[dom.Node]]
-                          )
+                          .map(_.filter(_ != null).asInstanceOf[List[dom.Node]])
                           .foreach {
                             case group @ (_ :: tail) =>
                               group.zip(tail).reverse.foreach {
@@ -1065,8 +1064,6 @@ object Selection {
                       }
 
                   case TextFn(value) => {
-                    val fn =
-                      value.asInstanceOf[(Any, Any, Any, Any) => String]
                     log("Step=TextFn") *>
                       F.defer(
                         go(
@@ -1074,8 +1071,13 @@ object Selection {
                             t,
                             Each { (n: N, d: D, i: Int, group: List[N]) =>
                               F.delay(
-                                n.asInstanceOf[dom.Node].textContent =
-                                  fn(n, d, i, group)
+                                n.asInstanceOf[dom.Node].textContent = value
+                                  .asInstanceOf[(Any, Any, Any, Any) => String](
+                                    n,
+                                    d,
+                                    i,
+                                    group
+                                  )
                               )
                             }
                           )
@@ -1204,9 +1206,7 @@ object Selection {
                       )
                   }
 
-                  case ClassedFn(names, value) => {
-                    val fn =
-                      value.asInstanceOf[(Any, Any, Any, Any) => Boolean]
+                  case ClassedFn(names, valueFn) =>
                     log("Step=ClassedFn") *>
                       F.defer(
                         go(
@@ -1216,7 +1216,9 @@ object Selection {
                               F.delay {
                                 val elm = n.asInstanceOf[dom.Element]
                                 val classes = names.trim().split("""^|\s+""")
-                                val value = fn(n, d, i, group)
+                                val value = valueFn.asInstanceOf[
+                                  (Any, Any, Any, Any) => Boolean
+                                ](n, d, i, group)
                                 if (value) {
                                   classes.foreach(elm.classList.add)
                                 } else {
@@ -1227,7 +1229,6 @@ object Selection {
                           )
                         )
                       )
-                  }
 
                   case Append(name) =>
                     log("Step=Append") *>
@@ -1272,7 +1273,7 @@ object Selection {
                     f0(t0).as(t0)
                   }
 
-                  case Each(fn) => {
+                  case Each(fn) =>
                     log("Step=Each") *>
                       groups
                         .traverse_ { group =>
@@ -1294,7 +1295,6 @@ object Selection {
                           }
                         } *> F
                         .pure(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
-                  }
 
                   case Select(selector) =>
                     log("Step=Select") *> F.defer {
@@ -1395,11 +1395,13 @@ object Selection {
 
                 }
               }
+
             case Continue(current, step) =>
               log("Continue") *>
                 F.defer(go(current)).flatMap { s =>
                   go(Continue(s, step))
                 }
+
             case EnterAppend(Enter.Nodes(nodes), name) => {
               log(
                 s"EnterAppend: nodes = ${nodes.map(_.mkString(", ")).mkString("\n")}"
@@ -1434,11 +1436,16 @@ object Selection {
                     Terminal(groups.asInstanceOf[List[List[N0]]], parents)
                   }
             }
+
             case t @ Terminal(_, _, _, _) =>
               log("Terminal") *> F
                 .pure(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
+
             case sel =>
-              throw new IllegalStateException(s"Unexpected type: $sel")
+              throw new IllegalStateException(
+                s"Unexpected Selection type: $sel"
+              )
+
           }
 
         }
