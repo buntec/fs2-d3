@@ -159,6 +159,9 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   ): Selection[F, N, D, PN, PD] =
     Continue(this, FilterFn(pred))
 
+  def lower: Selection[F, N, D, PN, PD] =
+    Continue(this, Lower())
+
   def on[F1[x] >: F[x]](
       typenames: String,
       listener: Option[(N, dom.Event, D) => F1[Unit]],
@@ -181,6 +184,9 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
       value: (N, D, Int, List[N]) => Option[Any]
   ): Selection[F, N, D, PN, PD] =
     Continue(this, Property(name, value))
+
+  def raise: Selection[F, N, D, PN, PD] =
+    Continue(this, Raise())
 
   def remove: Selection[F, N, D, PN, PD] =
     Continue(this, Remove())
@@ -717,6 +723,47 @@ object Selection {
                     log("Step=NewTransition") *> tm.next
                       .flatMap(transRef.set(_)) *> F
                       .pure(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
+
+                  case Lower() =>
+                    log("Step=Lower") *>
+                      F.defer(
+                        go(
+                          Continue(
+                            t,
+                            Each { (n: N, _: D, _: Int, _: List[N]) =>
+                              F.delay {
+                                val node = n.asInstanceOf[dom.Node]
+                                if (node.previousSibling != null) {
+                                  node.parentNode.insertBefore(
+                                    node,
+                                    node.parentNode.firstChild
+                                  )
+                                }
+                                ()
+                              }
+                            }
+                          )
+                        )
+                      )
+
+                  case Raise() =>
+                    log("Step=Lower") *>
+                      F.defer(
+                        go(
+                          Continue(
+                            t,
+                            Each { (n: N, _: D, _: Int, _: List[N]) =>
+                              F.delay {
+                                val node = n.asInstanceOf[dom.Node]
+                                if (node.nextSibling != null) {
+                                  node.parentNode.appendChild(node)
+                                }
+                                ()
+                              }
+                            }
+                          )
+                        )
+                      )
 
                   case Remove() =>
                     log("Step=Remove") *>
@@ -1608,6 +1655,8 @@ object Selection {
       onExit: Selection[F, N, D, PN, PD] => Selection[F, N, D, PN, PD]
   ) extends Action[F, N, D, PN, PD]
 
+  private case class Lower[F[_], N, D, PN, PD]() extends Action[F, N, D, PN, PD]
+
   private case class NewTransition[F[_], N, D, PN, PD]()
       extends Action[F, N, D, PN, PD]
 
@@ -1624,6 +1673,8 @@ object Selection {
       name: String,
       value: (N, D, Int, List[N]) => Option[Any]
   ) extends Action[F, N, D, PN, PD]
+
+  private case class Raise[F[_], N, D, PN, PD]() extends Action[F, N, D, PN, PD]
 
   private case class Remove[F[_], N, D, PN, PD]()
       extends Action[F, N, D, PN, PD]
