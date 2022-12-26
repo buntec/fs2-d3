@@ -62,15 +62,14 @@ class Example1[F[_]](implicit F: Async[F]) {
         .text("An example using selection + transition")
         .compile
         .drain
-      svgOpt <- d3
+      svg <- d3
         .select("#demo-1")
         .append("svg")
         .attr("width", width.some)
         .attr("height", height.some)
         .attr("viewBox", s"0 0 $width $height".some)
         .compile
-        .node[F, dom.Element]
-      svg <- F.fromOption(svgOpt, new Exception("missing svg element"))
+        .nodeOrError[F, dom.Element]
     } yield svg
 
     setup.flatMap { svg =>
@@ -95,18 +94,21 @@ class Example1[F[_]](implicit F: Async[F]) {
                 .transition
                 .duration(500.millis)
                 .ease(d3.ease.easeBounce)
-                .attr("y", "25"),
+                .attr("y", "25")
+                .selection,
               // update
               _.attr("fill", "black".some).transition
                 .attr(
                   "x",
                   (_, _, i, _) => s"${16 * i}"
-                ),
+                )
+                .selection,
               // exit
               _.attr("fill", "brown".some).transition
                 .attr("y", "50")
                 .attr("opacity", "0")
                 .remove
+                .selection
             )
             .compile
             .drain
@@ -136,9 +138,9 @@ class Example1[F[_]](implicit F: Async[F]) {
         .attr("width", "300".some)
         .attr("height", "300".some)
         .compile
-        .node[F, dom.Element]
+        .nodeOrError[F, dom.Element]
       _ <- d3
-        .select[F, dom.Element, Nothing](root.get)
+        .select[F, dom.Element, Nothing](root)
         .append("circle")
         .attr("style", "fill: none; stroke: #ccc; stroke-dasharray: 1,1".some)
         .attr("cx", "150".some)
@@ -147,12 +149,12 @@ class Example1[F[_]](implicit F: Async[F]) {
         .compile
         .drain
       g <- d3
-        .select[F, dom.Element, Nothing](root.get)
+        .select[F, dom.Element, Nothing](root)
         .append("g")
         .attr("transform", "translate(150, 150)".some)
         .compile
-        .node[F, dom.Element]
-    } yield g.get
+        .nodeOrError[F, dom.Element]
+    } yield g
 
     setup.flatMap { case root =>
       Stream
@@ -195,7 +197,7 @@ class Example1[F[_]](implicit F: Async[F]) {
 
   }
 
-  def demo3: F[Unit] = Dispatcher.sequential[F].use { dispatcher =>
+  def demo3: F[Unit] = Dispatcher.parallel[F].use { dispatcher =>
     val width = "150"
     val height = "50"
     val data = List("1", "2", "3")
@@ -217,8 +219,8 @@ class Example1[F[_]](implicit F: Async[F]) {
         .attr("height", height.some)
         .attr("viewBox", s"0 0 $width $height".some)
         .compile
-        .node
-    } yield svg.get
+        .nodeOrError
+    } yield svg
 
     setup.flatMap { svg =>
       d3.select(svg)
@@ -231,13 +233,23 @@ class Example1[F[_]](implicit F: Async[F]) {
             .attr("fill", "gray".some)
             .attr("cx", (_, _, i, _) => s"${50 * i + 10}".some)
             .attr("cy", "25".some)
+            .style("cursor", "pointer".some)
             .on(
               "click",
               Some((n: dom.Element, _: dom.Event, _: String) =>
-                d3.select(n).compile.style("fill").flatMap { fill =>
+                d3.select(n).compile.attr("fill").flatMap { fill =>
+                  val currentColor = fill.flatMap { f =>
+                    d3.color.fromString(f)
+                  }
+                  val color1 = d3.color.fromString("green").get
+                  val color2 = d3.color.fromString("red").get
                   val newFill =
-                    if (fill.exists(_ == "orange")) "gray" else "orange"
-                  d3.select(n).style("fill", Some(newFill)).compile.drain
+                    if (currentColor.exists(_ == color1)) color2 else color1
+                  d3.select(n)
+                    .transition
+                    .attr("fill", newFill.toString)
+                    .compile
+                    .drain
                 }
               ),
               None,

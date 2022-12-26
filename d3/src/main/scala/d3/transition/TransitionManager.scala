@@ -285,6 +285,9 @@ object TransitionManager {
           }
           .compile
           .drain
+          .onError { case t =>
+            F.delay(dom.console.error(s"Transition stream failed: $t"))
+          }
       }
 
       override def run: F[Unit] = oc.get.flatMap { oc =>

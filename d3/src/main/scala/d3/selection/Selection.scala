@@ -259,10 +259,18 @@ object Selection {
     ): F2[Option[String]] =
       node[F2, N].map(_.map(_.asInstanceOf[dom.Element].getAttribute(name)))
 
+    def attrOrError[F2[x] >: F[x]](
+        name: String
+    )(implicit F: Async[F2]): F2[String] =
+      attr[F2](name).flatMap(F.fromOption(_, new NoSuchElementException))
+
     def datum[F2[x] >: F[x], D2 >: D](implicit F: Async[F2]): F2[Option[D2]] =
       node[F2, N].map(
         _.flatMap(_.asInstanceOf[js.Dictionary[D2]].get(DATA_KEY))
       )
+
+    def datumOrError[F2[x] >: F[x], D2 >: D](implicit F: Async[F2]): F2[D2] =
+      datum[F2, D2].flatMap(F.fromOption(_, new NoSuchElementException))
 
     def drain[F2[x] >: F[x]](implicit F: Async[F2]): F2[Unit] =
       Selection.run[F2, N, D, PN, PD](sel).void
@@ -277,10 +285,18 @@ object Selection {
     ): F2[Option[String]] =
       node[F2, N].map(_.map(_.asInstanceOf[dom.Element].innerHTML))
 
+    def htmlOrError[F2[x] >: F[x]](implicit
+        F: Async[F2]
+    ): F2[String] =
+      html[F2].flatMap(F.fromOption(_, new NoSuchElementException))
+
     def node[F2[x] >: F[x], N2 >: N](implicit F: Async[F2]): F2[Option[N2]] =
       Selection
         .run[F2, N, D, PN, PD](sel)
         .map(_.groups.flatten.find(_ != null))
+
+    def nodeOrError[F2[x] >: F[x], N2 >: N](implicit F: Async[F2]): F2[N2] =
+      node[F2, N2].flatMap(F.fromOption(_, new NoSuchElementException))
 
     def nodes[F2[x] >: F[x], N2 >: N](implicit F: Async[F2]): F2[List[N2]] =
       Selection
@@ -308,10 +324,18 @@ object Selection {
       }
     }
 
+    def styleOrError[F2[x] >: F[x]](
+        name: String
+    )(implicit F: Async[F2]): F2[String] =
+      style[F2](name).flatMap(F.fromOption(_, new NoSuchElementException))
+
     def text[F2[x] >: F[x]](implicit
         F: Async[F2]
     ): F2[Option[String]] =
       node[F2, N].map(_.map(_.asInstanceOf[dom.Node].textContent))
+
+    def textOrError[F2[x] >: F[x]](implicit F: Async[F2]): F2[String] =
+      text[F2].flatMap(F.fromOption(_, new NoSuchElementException))
 
   }
 
@@ -465,14 +489,6 @@ object Selection {
 
     def transition: TransitionOps[F, N, D, PN, PD] =
       new TransitionOps(Continue(sel, NewTransition()))
-
-  }
-
-  object TransitionOps {
-
-    implicit def toSelection[F[_], N, D, PN, PD](
-        transition: TransitionOps[F, N, D, PN, PD]
-    ): Selection[F, N, D, PN, PD] = transition.selection
 
   }
 
