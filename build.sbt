@@ -78,19 +78,16 @@ ThisBuild / Test / jsEnv := {
 
 ThisBuild / scalafixDependencies += "com.github.liancheng" %% "organize-imports" % "0.6.0"
 
-lazy val scalacheckVersion = "1.16.0"
-lazy val munitVersion = "1.0.0-M7"
-
-lazy val scalajsDomVersion = "2.3.0"
-lazy val domtypesVersion = "0.15.3"
-
 lazy val catsVersion = "2.9.0"
 lazy val catsEffectVersion = "3.4.2"
 lazy val fs2Version = "3.4.0"
 lazy val fs2DomVersion = "0.1.0"
-
+lazy val scalajsDomVersion = "2.3.0"
+lazy val domtypesVersion = "0.15.3"
 lazy val kindProjectorVersion = "0.13.2"
 lazy val betterMonadicForVersion = "0.3.1"
+lazy val scalacheckVersion = "1.16.0"
+lazy val munitVersion = "1.0.0-M7"
 
 lazy val root = tlCrossRootProject.aggregate(d3, examples)
 
@@ -114,6 +111,7 @@ lazy val d3 = (project
       "org.typelevel" %%% "cats-effect-std" % catsEffectVersion,
       "co.fs2" %%% "fs2-core" % fs2Version,
       "com.armanbilge" %%% "fs2-dom" % fs2DomVersion,
+      "com.raquo" %%% "domtypes" % domtypesVersion,
       "org.scalameta" %%% "munit" % munitVersion % Test,
       "org.scalacheck" %%% "scalacheck" % scalacheckVersion % Test,
       "org.scala-js" %%% "scala-js-macrotask-executor" % "1.0.0" % Test

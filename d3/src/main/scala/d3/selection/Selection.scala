@@ -36,6 +36,9 @@ import cats.effect.implicits._
 import cats.effect.kernel.Async
 import cats.effect.std.Dispatcher
 import cats.syntax.all._
+import com.raquo.domtypes.generic.keys.HtmlAttr
+import com.raquo.domtypes.generic.keys.SvgAttr
+import d3.syntax
 import d3.transition.TransitionManager
 import org.scalajs.dom
 
@@ -63,11 +66,58 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   ): Selection[F, N0, D, PN, PD] =
     Continue(this, AppendFn(fn))
 
+  def attr[V](
+      htmlAttr: HtmlAttr[V],
+      value: Option[V]
+  ): Selection[F, N, D, PN, PD] =
+    Continue(
+      this,
+      AttrFn(
+        htmlAttr.name,
+        (_: N, _: D, _: Int, _: List[N]) => value.map(htmlAttr.codec.encode)
+      )
+    )
+
+  def attr[V](
+      svgAttr: SvgAttr[V],
+      value: Option[V]
+  ): Selection[F, N, D, PN, PD] =
+    Continue(
+      this,
+      AttrFn(
+        svgAttr.name,
+        (_: N, _: D, _: Int, _: List[N]) => value.map(svgAttr.codec.encode)
+      )
+    )
+
   def attr(name: String, value: Option[String]): Selection[F, N, D, PN, PD] =
     Continue(this, AttrFn(name, (_: N, _: D, _: Int, _: List[N]) => value))
 
-  def attr(
-      name: String,
+  def attr[V](htmlAttr: HtmlAttr[V])(
+      value: (N, D, Int, List[N]) => Option[V]
+  ): Selection[F, N, D, PN, PD] =
+    Continue(
+      this,
+      AttrFn(
+        htmlAttr.name,
+        (n: N, d: D, i: Int, g: List[N]) =>
+          value(n, d, i, g).map(htmlAttr.codec.encode)
+      )
+    )
+
+  def attr[V](
+      svgAttr: SvgAttr[V]
+  )(value: (N, D, Int, List[N]) => Option[V]): Selection[F, N, D, PN, PD] =
+    Continue(
+      this,
+      AttrFn(
+        svgAttr.name,
+        (n: N, d: D, i: Int, g: List[N]) =>
+          value(n, d, i, g).map(svgAttr.codec.encode)
+      )
+    )
+
+  def attr(name: String)(
       value: (N, D, Int, List[N]) => Option[String]
   ): Selection[F, N, D, PN, PD] =
     Continue(this, AttrFn(name, value))
@@ -210,8 +260,14 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
 
   def style(
       name: String,
+      value: Option[String]
+  ): Selection[F, N, D, PN, PD] =
+    style(name, value, false)
+
+  def style(
+      name: String,
       value: Option[String],
-      priority: Boolean = false
+      priority: Boolean
   ): Selection[F, N, D, PN, PD] =
     Continue(
       this,
@@ -219,11 +275,37 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
     )
 
   def style(
-      name: String,
-      value: (N, D, Int, List[N]) => Option[String],
+      setter: syntax.StyleSetter
+  ): Selection[F, N, D, PN, PD] =
+    style(setter, false)
+
+  def style(
+      setter: syntax.StyleSetter,
       priority: Boolean
   ): Selection[F, N, D, PN, PD] =
+    Continue(
+      this,
+      StyleSetterFn((_: N, _: D, _: Int, _: List[N]) => setter, priority)
+    )
+
+  def style(name: String)(
+      value: (N, D, Int, List[N]) => Option[String]
+  ): Selection[F, N, D, PN, PD] = style(name, false)(value)
+
+  def style(name: String, priority: Boolean)(
+      value: (N, D, Int, List[N]) => Option[String]
+  ): Selection[F, N, D, PN, PD] =
     Continue(this, StyleFn(name, value, priority))
+
+  def style(
+      value: (N, D, Int, List[N]) => syntax.StyleSetter
+  ): Selection[F, N, D, PN, PD] = style(value, false)
+
+  def style(
+      value: (N, D, Int, List[N]) => syntax.StyleSetter,
+      priority: Boolean
+  ): Selection[F, N, D, PN, PD] =
+    Continue(this, StyleSetterFn(value, priority))
 
   def text(value: String): Selection[F, N, D, PN, PD] =
     Continue(this, TextFn((_: N, _: D, _: Int, _: List[N]) => value))
@@ -381,7 +463,7 @@ object Selection {
 
     def attr(
         name: String,
-        value: String
+        value: Option[String]
     ): TransitionOps[F, N, D, PN, PD] =
       new TransitionOps(
         Continue(
@@ -393,9 +475,36 @@ object Selection {
         )
       )
 
-    def attr(
-        name: String,
-        value: (N, D, Int, List[N]) => String
+    def attr[V](
+        htmlAttr: HtmlAttr[V],
+        value: Option[V]
+    ): TransitionOps[F, N, D, PN, PD] =
+      new TransitionOps(
+        Continue(
+          sel,
+          AttrTransitionFn(
+            htmlAttr.name,
+            (_: N, _: D, _: Int, _: List[N]) => value.map(htmlAttr.codec.encode)
+          )
+        )
+      )
+
+    def attr[V](
+        svgAttr: SvgAttr[V],
+        value: Option[V]
+    ): TransitionOps[F, N, D, PN, PD] =
+      new TransitionOps(
+        Continue(
+          sel,
+          AttrTransitionFn(
+            svgAttr.name,
+            (_: N, _: D, _: Int, _: List[N]) => value.map(svgAttr.codec.encode)
+          )
+        )
+      )
+
+    def attr(name: String)(
+        value: (N, D, Int, List[N]) => Option[String]
     ): TransitionOps[F, N, D, PN, PD] =
       new TransitionOps(
         Continue(
@@ -403,6 +512,36 @@ object Selection {
           AttrTransitionFn(
             name,
             value
+          )
+        )
+      )
+
+    def attr[V](
+        htmlAttr: HtmlAttr[V]
+    )(
+        value: (N, D, Int, List[N]) => Option[V]
+    ): TransitionOps[F, N, D, PN, PD] =
+      new TransitionOps(
+        Continue(
+          sel,
+          AttrTransitionFn(
+            htmlAttr.name,
+            (n: N, d: D, i: Int, g: List[N]) =>
+              value(n, d, i, g).map(htmlAttr.codec.encode)
+          )
+        )
+      )
+
+    def attr[V](svgAttr: SvgAttr[V])(
+        value: (N, D, Int, List[N]) => Option[V]
+    ): TransitionOps[F, N, D, PN, PD] =
+      new TransitionOps(
+        Continue(
+          sel,
+          AttrTransitionFn(
+            svgAttr.name,
+            (n: N, d: D, i: Int, g: List[N]) =>
+              value(n, d, i, g).map(svgAttr.codec.encode)
           )
         )
       )
@@ -467,7 +606,7 @@ object Selection {
 
     def style(
         name: String,
-        value: String
+        value: Option[String]
     ): TransitionOps[F, N, D, PN, PD] =
       new TransitionOps(
         Continue(
@@ -479,9 +618,8 @@ object Selection {
         )
       )
 
-    def style(
-        name: String,
-        value: (N, D, Int, List[N]) => String
+    def style(name: String)(
+        value: (N, D, Int, List[N]) => Option[String]
     ): TransitionOps[F, N, D, PN, PD] =
       new TransitionOps(
         Continue(
@@ -629,7 +767,7 @@ object Selection {
                                   n.asInstanceOf[dom.Element],
                                   name,
                                   value.asInstanceOf[
-                                    (Any, Any, Any, Any) => String
+                                    (Any, Any, Any, Any) => Option[String]
                                   ](n, d, i, group)
                                 )
                               }
@@ -650,8 +788,30 @@ object Selection {
                                   n.asInstanceOf[dom.Element],
                                   name,
                                   value.asInstanceOf[
-                                    (Any, Any, Any, Any) => String
+                                    (Any, Any, Any, Any) => Option[String]
                                   ](n, d, i, group)
+                                )
+                              }
+                            )
+                          )
+                        )
+                      }
+
+                  case StyleSetterTransitionFn(value) =>
+                    log("Step=StyleTransitionFn") *>
+                      transRef.get.flatMap { trans =>
+                        F.defer(
+                          go(
+                            Continue(
+                              t,
+                              Each { (n: N, d: D, i: Int, group: List[N]) =>
+                                val setter = value.asInstanceOf[
+                                  (Any, Any, Any, Any) => syntax.StyleSetter
+                                ](n, d, i, group)
+                                trans.style(
+                                  n.asInstanceOf[dom.Element],
+                                  setter.name,
+                                  setter.value
                                 )
                               }
                             )
@@ -1266,6 +1426,42 @@ object Selection {
                       )
                   }
 
+                  case StyleSetterFn(fn, priority) => {
+                    log("Step=StyleSetterFn") *>
+                      F.defer(
+                        go(
+                          Continue(
+                            t,
+                            Each { (n: N, d: D, i: Int, group: List[N]) =>
+                              F.delay {
+                                val elm = n.asInstanceOf[dom.HTMLElement]
+                                val setter = fn.asInstanceOf[
+                                  (Any, Any, Any, Any) => syntax.StyleSetter
+                                ](n, d, i, group)
+
+                                setter.value match {
+                                  case None =>
+                                    elm.style.removeProperty(setter.name)
+                                  case Some(value) => {
+                                    if (priority) {
+                                      elm.style
+                                        .setProperty(
+                                          setter.name,
+                                          value,
+                                          "important"
+                                        )
+                                    } else {
+                                      elm.style.setProperty(setter.name, value)
+                                    }
+                                  }
+                                }
+                              }.void
+                            }
+                          )
+                        )
+                      )
+                  }
+
                   case Dispatch(tpe, paramsFn) => {
                     log("Step=Dispatch") *>
                       F.defer(
@@ -1579,12 +1775,16 @@ object Selection {
 
   private case class AttrTransitionFn[F[_], N, D, PN, PD](
       name: String,
-      value: (N, D, Int, List[N]) => String
+      value: (N, D, Int, List[N]) => Option[String]
   ) extends Action[F, N, D, PN, PD]
 
   private case class StyleTransitionFn[F[_], N, D, PN, PD](
       name: String,
-      value: (N, D, Int, List[N]) => String
+      value: (N, D, Int, List[N]) => Option[String]
+  ) extends Action[F, N, D, PN, PD]
+
+  private case class StyleSetterTransitionFn[F[_], N, D, PN, PD](
+      value: (N, D, Int, List[N]) => syntax.StyleSetter
   ) extends Action[F, N, D, PN, PD]
 
   private case class TransitionDurationFn[F[_], N, D, PN, PD](
@@ -1702,6 +1902,11 @@ object Selection {
   private case class StyleFn[F[_], N, D, PN, PD](
       name: String,
       fn: (N, D, Int, List[N]) => Option[String],
+      priority: Boolean
+  ) extends Action[F, N, D, PN, PD]
+
+  private case class StyleSetterFn[F[_], N, D, PN, PD](
+      fn: (N, D, Int, List[N]) => syntax.StyleSetter,
       priority: Boolean
   ) extends Action[F, N, D, PN, PD]
 

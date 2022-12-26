@@ -26,7 +26,7 @@ private[d3] trait Transition[F[_]] {
   def attr(
       node: dom.Element,
       name: String,
-      value: String
+      value: Option[String]
   ): F[Unit]
 
   def delay(node: dom.Element, delay: FiniteDuration): F[Unit]
@@ -40,7 +40,7 @@ private[d3] trait Transition[F[_]] {
   def style(
       node: dom.Element,
       name: String,
-      value: String
+      value: Option[String]
   ): F[Unit]
 
 }
@@ -49,11 +49,15 @@ private[d3] object Transition {
 
   case class Attr(
       name: namespace.Name,
-      valueStart: String,
-      valueEnd: String
+      valueStart: Option[String],
+      valueEnd: Option[String]
   )
 
-  case class Style(name: String, valueStart: String, valueEnd: String)
+  case class Style(
+      name: String,
+      valueStart: Option[String],
+      valueEnd: Option[String]
+  )
 
   case class Ts(
       node: dom.Element,

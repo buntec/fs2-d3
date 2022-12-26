@@ -34,6 +34,19 @@ package d3.transition
 
 object interpolate {
 
+  def apply(a: Option[String], b: Option[String]): Double => Option[String] = {
+    (a, b) match {
+      case (Some(a), Some(b)) =>
+        val interp = apply(a, b)
+        (t: Double) => Some(interp(t))
+      case (None, Some(b)) =>
+        (t: Double) => if (t < 1) None else Some(b)
+      case (Some(a), None) =>
+        (t: Double) => if (t < 1) Some(a) else None
+      case (None, None) => (_: Double) => None
+    }
+  }
+
   def apply(a: String, b: String): Double => String = {
 
     val fallback = (t: Double) => if (t < 1) a else b

@@ -138,8 +138,11 @@ object TransitionManager {
             }
           }
 
-          override def style(node: dom.Element, name: String, value: String)
-              : F[Unit] =
+          override def style(
+              node: dom.Element,
+              name: String,
+              value: Option[String]
+          ): F[Unit] =
             ts.update {
               _.updatedWith(id) {
                 case Some(m0) =>
@@ -183,7 +186,7 @@ object TransitionManager {
           override def attr(
               node: dom.Element,
               name: String,
-              value: String
+              value: Option[String]
           ): F[Unit] = {
             val fullname = namespace(name)
             ts.update {
@@ -240,7 +243,8 @@ object TransitionManager {
                     elm.getAttributeNS(space, local)
                 }
               }.map { valueStart =>
-                (name -> attr.copy(valueStart = valueStart))
+                (name -> attr
+                  .copy(valueStart = Option(valueStart).filter(_.nonEmpty)))
               }
             }
             .map(_.toMap)
@@ -248,7 +252,12 @@ object TransitionManager {
           val updatedStyles = ts.style.toList
             .traverse { case (name, style) =>
               F.delay {
-                elm.asInstanceOf[dom.HTMLElement].style.getPropertyValue(name)
+                elm
+                  .asInstanceOf[dom.HTMLElement]
+                  .style
+                  .getPropertyValue(name)
+                  .some
+                  .filter(_.nonEmpty)
               }.map { valueStart =>
                 (name -> style.copy(valueStart = valueStart))
               }
@@ -280,9 +289,16 @@ object TransitionManager {
                     F.delay(
                       name match {
                         case namespace.Name.Simple(name) =>
-                          elm.setAttribute(name, interpolatedValue)
+                          interpolatedValue match {
+                            case Some(value) => elm.setAttribute(name, value)
+                            case None        => elm.removeAttribute(name)
+                          }
                         case namespace.Name.Namespaced(space, local) =>
-                          elm.setAttributeNS(space, local, interpolatedValue)
+                          interpolatedValue match {
+                            case Some(value) =>
+                              elm.setAttributeNS(space, local, value)
+                            case None => elm.removeAttributeNS(space, local)
+                          }
                       }
                     )
                   }
@@ -293,12 +309,20 @@ object TransitionManager {
                         interpolate(style.valueStart, style.valueEnd)(
                           ts.ease(t)
                         )
-                      F.delay(
-                        elm
-                          .asInstanceOf[dom.HTMLElement]
-                          .style
-                          .setProperty(name, interpolatedValue, "")
-                      )
+                      F.delay {
+                        interpolatedValue match {
+                          case None =>
+                            elm
+                              .asInstanceOf[dom.HTMLElement]
+                              .style
+                              .removeProperty(name)
+                          case Some(value) =>
+                            elm
+                              .asInstanceOf[dom.HTMLElement]
+                              .style
+                              .setProperty(name, value, "")
+                        }
+                      }
                   }
 
                   setAttr >> setStyle

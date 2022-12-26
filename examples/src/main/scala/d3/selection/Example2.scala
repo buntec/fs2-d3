@@ -26,6 +26,8 @@ import concurrent.duration._
 
 class Example2[F[_]](implicit F: Async[F]) {
 
+  import d3.syntax.svg._
+
   def run: F[Unit] = Random.scalaUtilRandom[F].flatMap { rng =>
     val genData = rng.nextDouble.map(_ * 2.0 * math.Pi).replicateA(3)
     val radius = 100.0
@@ -64,20 +66,14 @@ class Example2[F[_]](implicit F: Async[F]) {
           .data(data)
           .join[F, dom.Element, Double, dom.Element, Nothing](
             _.append[dom.Element]("circle")
-              .attr("r", "7".some)
-              .attr("fill", "blue".some)
-              .attr("cx", "0".some)
-              .attr("cy", "0".some)
+              .attr(r, "7".some)
+              .attr(fill, "blue".some)
+              .attr(cx, "0".some)
+              .attr(cy, "0".some)
           )
           .transition
-          .attr(
-            "cx",
-            (_, d, _, _) => s"${radius * math.cos(d)}"
-          )
-          .attr(
-            "cy",
-            (_, d, _, _) => s"${radius * math.sin(d)}"
-          )
+          .attr(cx)((_, d, _, _) => s"${radius * math.cos(d)}".some)
+          .attr(cy)((_, d, _, _) => s"${radius * math.sin(d)}".some)
           .compile
           .drain
 
