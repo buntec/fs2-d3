@@ -140,44 +140,40 @@ object TransitionManager {
 
           override def style(node: dom.Element, name: String, value: String)
               : F[Unit] =
-            F.delay {
-              node.asInstanceOf[dom.HTMLElement].style.getPropertyValue(name)
-            }.flatMap { valueStart =>
-              ts.update {
-                _.updatedWith(id) {
-                  case Some(m0) =>
-                    Some(m0.updatedWith(node) {
-                      case Some(ts) =>
-                        Some(
-                          ts.copy(
-                            style = ts.style + (name -> Transition
-                              .Style(name, valueStart, value))
-                          )
+            ts.update {
+              _.updatedWith(id) {
+                case Some(m0) =>
+                  Some(m0.updatedWith(node) {
+                    case Some(ts) =>
+                      Some(
+                        ts.copy(
+                          style = ts.style + (name -> Transition
+                            .Style(name, value, value))
                         )
-                      case None =>
-                        Some(
-                          Transition.Ts(
-                            node,
-                            style = Map(
-                              name -> Transition
-                                .Style(name, valueStart, value)
-                            )
-                          )
-                        )
-                    })
-                  case None =>
-                    Some(
-                      Map(
-                        node -> Transition.Ts(
+                      )
+                    case None =>
+                      Some(
+                        Transition.Ts(
                           node,
                           style = Map(
                             name -> Transition
-                              .Style(name, valueStart, value)
+                              .Style(name, value, value)
                           )
                         )
                       )
+                  })
+                case None =>
+                  Some(
+                    Map(
+                      node -> Transition.Ts(
+                        node,
+                        style = Map(
+                          name -> Transition
+                            .Style(name, value, value)
+                        )
+                      )
                     )
-                }
+                  )
               }
             }
 
@@ -190,48 +186,40 @@ object TransitionManager {
               value: String
           ): F[Unit] = {
             val fullname = namespace(name)
-            F.delay {
-              fullname match {
-                case namespace.Name.Simple(name0) => node.getAttribute(name0)
-                case namespace.Name.Namespaced(space, local) =>
-                  node.getAttributeNS(space, local)
-              }
-            }.flatMap { valueStart =>
-              ts.update {
-                _.updatedWith(id) {
-                  case Some(m0) =>
-                    Some(m0.updatedWith(node) {
-                      case Some(ts) =>
-                        Some(
-                          ts.copy(
-                            attr = ts.attr + (fullname -> Transition
-                              .Attr(fullname, valueStart, value))
-                          )
+            ts.update {
+              _.updatedWith(id) {
+                case Some(m0) =>
+                  Some(m0.updatedWith(node) {
+                    case Some(ts) =>
+                      Some(
+                        ts.copy(
+                          attr = ts.attr + (fullname -> Transition
+                            .Attr(fullname, value, value))
                         )
-                      case None =>
-                        Some(
-                          Transition.Ts(
-                            node,
-                            attr = Map(
-                              fullname -> Transition
-                                .Attr(fullname, valueStart, value)
-                            )
-                          )
-                        )
-                    })
-                  case None =>
-                    Some(
-                      Map(
-                        node -> Transition.Ts(
+                      )
+                    case None =>
+                      Some(
+                        Transition.Ts(
                           node,
                           attr = Map(
                             fullname -> Transition
-                              .Attr(fullname, valueStart, value)
+                              .Attr(fullname, value, value)
                           )
                         )
                       )
+                  })
+                case None =>
+                  Some(
+                    Map(
+                      node -> Transition.Ts(
+                        node,
+                        attr = Map(
+                          fullname -> Transition
+                            .Attr(fullname, value, value)
+                        )
+                      )
                     )
-                }
+                  )
               }
             }
           }
@@ -240,60 +228,95 @@ object TransitionManager {
 
       private def run(m: Map[dom.Element, Transition.Ts]): F[Unit] = {
         val totalDuration = m.map { case (_, ts) => ts.duration + ts.delay }.max
-        Scheduler.awakeEveryAnimationFrame
-          .takeThrough(_ < totalDuration)
-          .evalMap { elapsed =>
-            m.toList.traverse_ { case (elm, ts) =>
-              F.whenA(elapsed >= ts.delay) {
-                val t = math
-                  .min(
-                    1.0,
-                    (elapsed - ts.delay).toMillis.toDouble / ts.duration.toMillis
-                  )
 
-                val setAttr = ts.attr.toList.traverse_ { case (name, attr) =>
-                  val interpolatedValue =
-                    interpolate(attr.valueStart, attr.valueEnd)(
-                      ts.ease(t)
-                    )
-                  F.delay(
-                    name match {
-                      case namespace.Name.Simple(name) =>
-                        elm.setAttribute(name, interpolatedValue)
-                      case namespace.Name.Namespaced(space, local) =>
-                        elm.setAttributeNS(space, local, interpolatedValue)
-                    }
-                  )
+        // update start values of styles and attrs
+        val withUpdatedStartValues = m.toList.traverse { case (elm, ts) =>
+          val updatedAttrs = ts.attr.toList
+            .traverse { case (name, attr) =>
+              F.delay {
+                name match {
+                  case namespace.Name.Simple(name0) => elm.getAttribute(name0)
+                  case namespace.Name.Namespaced(space, local) =>
+                    elm.getAttributeNS(space, local)
                 }
-
-                val setStyle = ts.style.toList.traverse_ { case (name, style) =>
-                  val interpolatedValue =
-                    interpolate(style.valueStart, style.valueEnd)(
-                      ts.ease(t)
-                    )
-                  F.delay(
-                    elm
-                      .asInstanceOf[dom.HTMLElement]
-                      .style
-                      .setProperty(name, interpolatedValue, "")
-                  )
-                }
-
-                setAttr >> setStyle
+              }.map { valueStart =>
+                (name -> attr.copy(valueStart = valueStart))
               }
             }
+            .map(_.toMap)
+
+          val updatedStyles = ts.style.toList
+            .traverse { case (name, style) =>
+              F.delay {
+                elm.asInstanceOf[dom.HTMLElement].style.getPropertyValue(name)
+              }.map { valueStart =>
+                (name -> style.copy(valueStart = valueStart))
+              }
+            }
+            .map(_.toMap)
+
+          (updatedAttrs, updatedStyles).tupled.map { case (attr, style) =>
+            (elm -> ts.copy(attr = attr, style = style))
           }
-          .compile
-          .drain
-          .onError { case t =>
-            F.delay(dom.console.error(s"Transition stream failed: $t"))
-          }
+        }
+
+        withUpdatedStartValues.flatMap { tsByElm =>
+          Scheduler.awakeEveryAnimationFrame
+            .takeThrough(_ < totalDuration)
+            .evalMap { elapsed =>
+              tsByElm.traverse_ { case (elm, ts) =>
+                F.whenA(elapsed >= ts.delay) {
+                  val t = math
+                    .min(
+                      1.0,
+                      (elapsed - ts.delay).toMillis.toDouble / ts.duration.toMillis
+                    )
+
+                  val setAttr = ts.attr.toList.traverse_ { case (name, attr) =>
+                    val interpolatedValue =
+                      interpolate(attr.valueStart, attr.valueEnd)(
+                        ts.ease(t)
+                      )
+                    F.delay(
+                      name match {
+                        case namespace.Name.Simple(name) =>
+                          elm.setAttribute(name, interpolatedValue)
+                        case namespace.Name.Namespaced(space, local) =>
+                          elm.setAttributeNS(space, local, interpolatedValue)
+                      }
+                    )
+                  }
+
+                  val setStyle = ts.style.toList.traverse_ {
+                    case (name, style) =>
+                      val interpolatedValue =
+                        interpolate(style.valueStart, style.valueEnd)(
+                          ts.ease(t)
+                        )
+                      F.delay(
+                        elm
+                          .asInstanceOf[dom.HTMLElement]
+                          .style
+                          .setProperty(name, interpolatedValue, "")
+                      )
+                  }
+
+                  setAttr >> setStyle
+                }
+              }
+            }
+            .compile
+            .drain
+            .onError { case t =>
+              F.delay(dom.console.error(s"Transition stream failed: $t"))
+            }
+        }
       }
 
       override def run: F[Unit] = oc.get.flatMap { oc =>
         val ocm = oc.groupBy(_._1).map { case (k, v) => k -> v.map(_._2) }
-        ts.get.flatMap { m =>
-          m.toList.sortBy(_._1).traverse_ { case (id, ts) =>
+        ts.get.flatMap {
+          _.toList.sortBy(_._1).traverse_ { case (id, ts) =>
             run(ts) >> ocm.get(id).fold(F.unit)(_.parSequence_)
           }
         }

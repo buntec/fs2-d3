@@ -231,7 +231,7 @@ class Example1[F[_]](implicit F: Async[F]) {
           _.append[dom.Element]("circle")
             .attr("r", "10".some)
             .attr("fill", "gray".some)
-            .attr("cx", (_, _, i, _) => s"${50 * i + 10}".some)
+            .attr("cx", (_, _, i, _) => s"${50 * i + 25}".some)
             .attr("cy", "25".some)
             .style("cursor", "pointer".some)
             .on(
@@ -247,7 +247,11 @@ class Example1[F[_]](implicit F: Async[F]) {
                     if (currentColor.exists(_ == color1)) color2 else color1
                   d3.select(n)
                     .transition
+                    .attr("r", "15")
                     .attr("fill", newFill.toString)
+                    .transition
+                    .duration(250.millis)
+                    .attr("r", "10")
                     .compile
                     .drain
                 }
