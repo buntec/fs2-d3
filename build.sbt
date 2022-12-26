@@ -119,7 +119,7 @@ lazy val d3 = (project
   )
 
 lazy val examples = (project in file("examples"))
-  .enablePlugins(ScalaJSPlugin, NoPublishPlugin)
+  .enablePlugins(ScalaJSPlugin, NoPublishPlugin, BundleMonPlugin)
   .settings(
     commonSettings,
     scalaJSUseMainModuleInitializer := true,
