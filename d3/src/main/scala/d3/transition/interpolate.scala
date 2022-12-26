@@ -32,7 +32,7 @@
 
 package d3.transition
 
-object interpolate {
+private[transition] object interpolate {
 
   def apply(a: Option[String], b: Option[String]): Double => Option[String] = {
     (a, b) match {

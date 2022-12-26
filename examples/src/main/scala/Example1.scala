@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package d3.selection.examples
+package examples
 
 import cats.effect.implicits._
 import cats.effect.kernel.Async

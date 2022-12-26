@@ -27,7 +27,7 @@ import org.scalajs.dom
 
 import scala.concurrent.duration.Duration
 
-object Scheduler {
+private[d3] object Scheduler {
 
   def awakeEveryAnimationFrame[F[_]](implicit
       F: Async[F]

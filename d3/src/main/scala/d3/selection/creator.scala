@@ -34,9 +34,9 @@ package d3.selection
 
 import org.scalajs.dom
 
-object creator {
+private[selection] object creator {
 
-  def apply(name: String, parent: dom.Node) = {
+  def apply(name: String, parent: dom.Node): dom.Element = {
     namespace(name) match {
       case namespace.Name.Simple(name0) =>
         creatorInherited(name0, parent)
@@ -45,11 +45,14 @@ object creator {
     }
   }
 
-  private def creatorFixed(ns: namespace.Name.Namespaced, parent: dom.Node) = {
+  private def creatorFixed(
+      ns: namespace.Name.Namespaced,
+      parent: dom.Node
+  ): dom.Element = {
     parent.ownerDocument.createElementNS(ns.space, ns.local)
   }
 
-  private def creatorInherited(name: String, parent: dom.Node) = {
+  private def creatorInherited(name: String, parent: dom.Node): dom.Element = {
     val document = parent.ownerDocument
     val uri = parent.namespaceURI
     if (

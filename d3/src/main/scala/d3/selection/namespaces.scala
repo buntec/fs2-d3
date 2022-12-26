@@ -44,7 +44,7 @@ object namespaces {
 
   val xmlns = "http://www.w3.org/2000/xmlns/"
 
-  val map = Map(
+  private[d3] val map = Map(
     "svg" -> svg,
     "xhtml" -> xhtml,
     "xlink" -> xlink,

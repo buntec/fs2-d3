@@ -34,7 +34,7 @@ private[d3] trait TransitionManager[F[_]] {
 
 }
 
-object TransitionManager {
+private[d3] object TransitionManager {
 
   def apply[F[_]](implicit F: Async[F]): Resource[F, TransitionManager[F]] =
     for {
