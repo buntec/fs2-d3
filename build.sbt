@@ -78,6 +78,13 @@ ThisBuild / Test / jsEnv := {
 
 ThisBuild / scalafixDependencies += "com.github.liancheng" %% "organize-imports" % "0.6.0"
 
+ThisBuild / Compile / doc / sources := {
+  if (tlIsScala3.value)
+    Seq.empty
+  else
+    (Compile / doc / sources).value
+}
+
 lazy val catsVersion = "2.9.0"
 lazy val catsEffectVersion = "3.4.2"
 lazy val fs2Version = "3.4.0"
