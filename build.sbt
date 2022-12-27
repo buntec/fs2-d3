@@ -5,7 +5,7 @@ Global / semanticdbVersion := scalafixSemanticdb.revision // only required for S
 ThisBuild / tlBaseVersion := "0.1"
 
 lazy val scala213 = "2.13.10"
-lazy val scala3 = "3.2.1"
+lazy val scala3 = "3.3.0-RC1-bin-20221224-6f5bb34-NIGHTLY" // "3.2.1"
 
 ThisBuild / scalaVersion := scala213
 ThisBuild / crossScalaVersions := Seq(scala213, scala3)
@@ -77,13 +77,6 @@ ThisBuild / Test / jsEnv := {
 }
 
 ThisBuild / scalafixDependencies += "com.github.liancheng" %% "organize-imports" % "0.6.0"
-
-ThisBuild / Compile / doc / sources := {
-  if (tlIsScala3.value)
-    Seq.empty
-  else
-    (Compile / doc / sources).value
-}
 
 lazy val catsVersion = "2.9.0"
 lazy val catsEffectVersion = "3.4.2"
