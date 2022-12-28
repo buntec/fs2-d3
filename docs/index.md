@@ -3,10 +3,9 @@
 **FS2-D3** is a pure [Scala.js](https://www.scala-js.org/) port of [D3.js](https://github.com/d3/d3).
 It offers a purely-functional (i.e., referentially transparent) and type-safe API that should
 feel familiar to users of D3.js.
-It is built on top of [Cats Effect](https://typelevel.org/cats-effect/) and [FS2](https://fs2.io/).
+The library is built on top of [Cats Effect](https://typelevel.org/cats-effect/) and [FS2](https://fs2.io/).
 While the API is parametric in the effect type `F[_]`, in practice most users will want
 to use the concrete type `cats.effect.IO`.
-
 
 ### Acknowledgements
 
@@ -15,7 +14,7 @@ Huge thanks to [@armanbilge](https://github.com/armanbilge/) for answering all o
 ## Examples
 
 In this first example, we generate once per second a random sequence of letters
-and bind them to svg text elements. We use transitions to animate the entering,
+and bind them to SVG text elements. We use transitions to animate the entering,
 exiting and reordering of letters.
 
 ```scala mdoc:js
@@ -94,7 +93,7 @@ Random.scalaUtilRandom[IO].flatMap { rng =>
 
 In the next example, we randomly place small colored circles on the boundary
 of a larger circle. Again, we use transitions to animate the
-changing of positions and colors.
+changes in position and color.
 
 
 ```scala mdoc:js
@@ -118,23 +117,23 @@ Random.scalaUtilRandom[IO].flatMap { rng =>
       root <- d3
         .select(node)
         .append("svg")
-        .attr("width", "300".some)
-        .attr("height", "300".some)
+        .attr(width, "300".some)
+        .attr(height, "300".some)
         .compile
         .nodeOrError[IO, dom.Element]
       _ <- d3
-        .select[IO, dom.Element, Nothing](root)
+        .select(root)
         .append("circle")
-        .attr("style", "fill: none; stroke: #ccc; stroke-dasharray: 1,1".some)
-        .attr("cx", "150".some)
-        .attr("cy", "150".some)
-        .attr("r", s"$radius".some)
+        .attr(style, "fill: none; stroke: #ccc; stroke-dasharray: 1,1".some)
+        .attr(cx, "150".some)
+        .attr(cy, "150".some)
+        .attr(r, s"$radius".some)
         .compile
         .drain[IO]
       g <- d3
-        .select[IO, dom.Element, Nothing](root)
+        .select(root)
         .append("g")
-        .attr("transform", "translate(150, 150)".some)
+        .attr(transform, "translate(150, 150)".some)
         .compile
         .nodeOrError[IO, dom.Element]
     } yield g
@@ -149,11 +148,11 @@ Random.scalaUtilRandom[IO].flatMap { rng =>
             .data(data)
             .join[IO, dom.Element, Double, dom.Element, Nothing](
               // enter
-              _.append[dom.Element]("circle")
-                .attr("r", "7".some)
-                .attr("fill", "gray".some)
-                .attr("cx", "0".some)
-                .attr("cy", "0".some)
+              _.append("circle")
+                .attr(r, "7".some)
+                .attr(fill, "gray".some)
+                .attr(cx, "0".some)
+                .attr(cy, "0".some)
             )
             .transition
             .delay((_, d, _, _) => (d * 500.0).millis)
@@ -174,6 +173,80 @@ Random.scalaUtilRandom[IO].flatMap { rng =>
         .drain
     }
 
+  }.unsafeRunAndForget()
+
+```
+
+In this example, we add interactivity by registering event listeners
+for the "click" event. Clicking on any of the circles will change their color.
+
+```scala mdoc:js
+import cats.effect.std.Dispatcher
+import cats.syntax.all._
+import org.scalajs.dom
+import concurrent.duration._
+import cats.effect.IO
+import cats.effect.unsafe.implicits.global
+
+Dispatcher.parallel[IO].use { dispatcher =>
+    val width = "150"
+    val height = "50"
+    val data = List("1", "2", "3")
+
+    val setup = d3
+        .select(node)
+        .append[dom.Element]("svg")
+        .attr("id", "demo3".some)
+        .attr("width", width.some)
+        .attr("height", height.some)
+        .attr("viewBox", s"0 0 $width $height".some)
+        .compile
+        .nodeOrError[IO, dom.Element]
+
+    import d3.syntax.svg._
+    import d3.syntax.html._
+
+    setup.flatMap { svg =>
+      d3.select(svg)
+        .selectAll("circle")
+        .data(data)
+        .join[IO, dom.Element, String, dom.Element, Nothing](
+          // enter
+          _.append[dom.Element]("circle")
+            .attr(r, "10".some)
+            .attr(fill, "gray".some)
+            .attr(cx)((_, _, i, _) => s"${50 * i + 25}".some)
+            .attr(cy, "25".some)
+            .style(cursor.pointer)
+            .on[IO](
+              "click",
+              Some((n: dom.Element, _: dom.Event, _: String) =>
+                d3.select(n).compile.attr[IO]("fill").flatMap { fill0 =>
+                  val currentColor = fill0.flatMap { f =>
+                    d3.color.fromString(f)
+                  }
+                  val color1 = d3.color.fromString("green").get
+                  val color2 = d3.color.fromString("red").get
+                  val newFill =
+                    if (currentColor.exists(_ == color1)) color2 else color1
+                  d3.select(n)
+                    .transition
+                    .attr(r, "15".some)
+                    .attr(fill, newFill.toString.some)
+                    .transition
+                    .duration(250.millis)
+                    .attr(r, "10".some)
+                    .compile
+                    .drain[IO]
+                }
+              ),
+              None,
+              dispatcher
+            )
+        )
+        .compile
+        .drain
+    } >> IO.never // we need `never` here to keep the dispatcher alive
   }.unsafeRunAndForget()
 
 ```

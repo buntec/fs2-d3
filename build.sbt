@@ -1,3 +1,8 @@
+import laika.ast.Styles
+import laika.helium.config.IconLink
+import laika.helium.config.HeliumIcon
+import laika.helium.Helium
+
 Global / onChangedBuildSource := ReloadOnSourceChanges
 Global / semanticdbEnabled := true // enable SemanticDB
 Global / semanticdbVersion := scalafixSemanticdb.revision // only required for Scala 2.x
@@ -144,7 +149,17 @@ lazy val docs = project
     ),
     laikaConfig ~= { _.withRawContent },
     tlSiteHeliumConfig ~= {
-      // Actually, this *disables* auto-linking, to avoid duplicates with mdoc
-      _.site.autoLinkJS()
+      _.site
+        .autoLinkJS() // Actually, this *disables* auto-linking, to avoid duplicates with mdoc
+        .site
+        .topNavigationBar(navLinks =
+          Seq(
+            IconLink.external(
+              "https://github.com/buntec/fs2-d3",
+              HeliumIcon.github,
+              options = Styles("svg-link")
+            )
+          )
+        )
     }
   )
