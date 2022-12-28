@@ -3,7 +3,7 @@
 A pure-FP take on [D3.js](https://github.com/d3/d3) for [Scala.js](https://www.scala-js.org/)
 built on top of [Cats Effect](https://typelevel.org/cats-effect/) and [FS2](https://fs2.io/).
 
-Check out the [microsite](https://buntec.github.io/fs2-d2/).
+Check out the [microsite](https://buntec.github.io/fs2-d3/).
 
 Disclaimer: This library is experimental, so use at your own risk! No artifacts are published yet.
 
