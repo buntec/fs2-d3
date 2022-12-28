@@ -13,7 +13,7 @@ Huge thanks to [@armanbilge](https://github.com/armanbilge/) for answering all o
 
 ## Examples
 
-In this first example, we generate once per second a random sequence of letters
+In this first example we generate once per second a random sequence of letters
 and bind them to SVG text elements. We use transitions to animate the entering,
 exiting and reordering of letters.
 
@@ -91,7 +91,7 @@ Random.scalaUtilRandom[IO].flatMap { rng =>
 
 ```
 
-In the next example, we randomly place small colored circles on the boundary
+In the next example we randomly place small colored circles on the boundary
 of a larger circle. Again, we use transitions to animate the
 changes in position and color.
 
@@ -177,8 +177,12 @@ Random.scalaUtilRandom[IO].flatMap { rng =>
 
 ```
 
-In this example, we add interactivity by registering event listeners
-for the "click" event. Clicking on any of the circles will change their color.
+In this example we add interactivity by registering event listeners.
+Clicking on any of the circles will change their color.
+Event listeners require an instance of `cats.effect.std.Dispatcher[F]`,
+and since the listener outlives the effect of registering it,
+we need to keep the dispatcher alive until the listener is removed again,
+which in this case is never.
 
 ```scala mdoc:js
 import cats.effect.std.Dispatcher
@@ -189,22 +193,22 @@ import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 
 Dispatcher.parallel[IO].use { dispatcher =>
-    val width = "150"
-    val height = "50"
+
     val data = List("1", "2", "3")
+    val w = "150"
+    val h = "50"
+
+    import d3.syntax.html.cursor
+    import d3.syntax.svg._
 
     val setup = d3
         .select(node)
         .append[dom.Element]("svg")
-        .attr("id", "demo3".some)
-        .attr("width", width.some)
-        .attr("height", height.some)
-        .attr("viewBox", s"0 0 $width $height".some)
+        .attr(width, w.some)
+        .attr(height, h.some)
+        .attr(viewBox, s"0 0 $w $h".some)
         .compile
         .nodeOrError[IO, dom.Element]
-
-    import d3.syntax.svg._
-    import d3.syntax.html._
 
     setup.flatMap { svg =>
       d3.select(svg)
