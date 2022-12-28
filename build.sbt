@@ -13,6 +13,9 @@ ThisBuild / organization := "io.github.buntec"
 ThisBuild / organizationName := "buntec"
 ThisBuild / tlSonatypeUseLegacyHost := false
 
+// publish website from this branch
+ThisBuild / tlSitePublishBranch := Some("main")
+
 ThisBuild / developers := List(
   tlGitHubDev("buntec", "Christoph Bunte")
 )
@@ -128,3 +131,20 @@ lazy val examples = (project in file("examples"))
     )
   )
   .dependsOn(d3)
+
+lazy val docs = project
+  .in(file("site"))
+  .enablePlugins(TypelevelSitePlugin)
+  .settings(
+    tlSiteApiPackage := Some("d3"),
+    mdocJS := Some(d3),
+    tlSiteRelatedProjects ++= Seq(
+      TypelevelProject.CatsEffect,
+      TypelevelProject.Fs2
+    ),
+    laikaConfig ~= { _.withRawContent },
+    tlSiteHeliumConfig ~= {
+      // Actually, this *disables* auto-linking, to avoid duplicates with mdoc
+      _.site.autoLinkJS()
+    }
+  )
