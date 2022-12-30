@@ -17,71 +17,44 @@
 package examples
 
 import cats.effect.kernel.Async
-import cats.effect.std.Random
 import cats.syntax.all._
-import fs2.Stream
 import org.scalajs.dom
-
-import concurrent.duration._
 
 class Example2[F[_]](implicit F: Async[F]) {
 
-  import d3.syntax.svg._
-
-  def run: F[Unit] = Random.scalaUtilRandom[F].flatMap { rng =>
-    val genData = rng.nextDouble.map(_ * 2.0 * math.Pi).replicateA(3)
-    val radius = 100.0
+  def run: F[Unit] = {
+    val w = 500
+    val h = 500
+    val margin = 50
 
     val setup = for {
-      _ <- d3
+      svg <- d3
         .select("#app")
         .append("svg")
-        .attr("width", "800".some)
-        .attr("height", "300".some)
+        .attr("width", s"${w + 2 * margin}".some)
+        .attr("height", s"${h + 2 * margin}".some)
         .compile
-        .drain
-      _ <- d3
-        .select("svg")
-        .append("circle")
-        .attr("style", "fill: none; stroke: #ccc; stroke-dasharray: 1,1".some)
-        .attr("cx", "150".some)
-        .attr("cy", "150".some)
-        .attr("r", s"$radius".some)
-        .compile
-        .drain
-      _ <- d3
-        .select("svg")
+        .nodeOrError[F, dom.Element]
+      g <- d3
+        .select(svg)
         .append("g")
-        .attr("transform", "translate(150, 150)".some)
+        .attr("transform", s"translate($margin, $margin)".some)
         .compile
-        .drain
-    } yield ()
+        .nodeOrError[F, dom.Element]
+    } yield g
 
-    val loop = Stream
-      .fixedDelay(1.second)
-      .evalMap(_ => genData)
-      .evalMap { data =>
-        d3.select[F, dom.Element, Nothing]("svg g")
-          .selectAll[dom.Element, Double]("circle")
-          .data(data)
-          .join[F, dom.Element, Double, dom.Element, Nothing](
-            _.append[dom.Element]("circle")
-              .attr(r, "7".some)
-              .attr(fill, "blue".some)
-              .attr(cx, "0".some)
-              .attr(cy, "0".some)
-          )
-          .transition
-          .attr(cx)((_, d, _, _) => s"${radius * math.cos(d)}".some)
-          .attr(cy)((_, d, _, _) => s"${radius * math.sin(d)}".some)
-          .compile
-          .drain
+    setup.flatMap { g =>
+      val x = d3.scale.ScaleContinuous.linear((0, 100.0), (0, w.toDouble))
+      val y = d3.scale.ScaleContinuous.linear((0, 100.0), (0, h.toDouble))
 
-      }
-      .compile
-      .drain
+      val xAxis = d3.axis.axisTop(x)
+      val makeXAxis = xAxis(d3.select[F, dom.Element, Nothing](g).append("g"))
 
-    setup >> loop
+      val yAxis = d3.axis.axisLeft(y)
+      val makeYAxis = yAxis(d3.select[F, dom.Element, Nothing](g).append("g"))
+
+      (makeXAxis, makeYAxis).tupled.void
+    }
   }
 
 }

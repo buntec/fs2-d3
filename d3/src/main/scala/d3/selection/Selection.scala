@@ -209,6 +209,15 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
   ): Selection[F, N, D, PN, PD] =
     Continue(this, FilterFn(pred))
 
+  def insert[N0](name: String, before: String): Selection[F, N0, D, PN, PD] =
+    Continue(this, Insert(name, before))
+
+  def insert[N0, N1, F1[x] >: F[x]](
+      name: (N, D, Int, List[N]) => F1[N0],
+      before: (N, D, Int, List[N]) => F1[N1]
+  ): Selection[F1, N0, D, PN, PD] =
+    Continue(this, InsertFn(name, before))
+
   def lower: Selection[F, N, D, PN, PD] =
     Continue(this, Lower())
 
@@ -248,6 +257,9 @@ sealed abstract class Selection[+F[_], +N, +D, +PN, +PD] {
       selector: (N, D, Int, List[N]) => F1[N0]
   ): Selection[F1, N0, D, PN, PD] =
     Continue(this, SelectFn(selector))
+
+  def selectParent[N0]: Selection[F, N0, D, PN, PD] =
+    Continue(this, SelectParent())
 
   def selectAll[N0, D0](selector: String): Selection[F, N0, D0, N, D] =
     Continue(this, SelectAll(selector))
@@ -1604,6 +1616,50 @@ object Selection {
                         } *> F
                         .pure(t.asInstanceOf[Terminal[F, N0, D0, PN0, PD0]])
 
+                  case Insert(name, before) =>
+                    log("Step=Insert") *> F.defer {
+                      go(
+                        Continue(
+                          t,
+                          SelectFn { (n: N0, _: D0, _: Int, _: List[N0]) =>
+                            F.delay {
+                              val parent = n.asInstanceOf[dom.Element]
+                              parent.insertBefore(
+                                creator(name, parent),
+                                parent.querySelector(before)
+                              )
+                            }
+                          }
+                        )
+                      )
+                    }
+
+                  case InsertFn(nameFn, beforeFn) =>
+                    log("Step=InsertFn") *> F.defer {
+                      go(
+                        Continue(
+                          t,
+                          SelectFn { (n: N0, d: D0, i: Int, group: List[N0]) =>
+                            val parent = n.asInstanceOf[dom.Element]
+                            val name =
+                              nameFn.asInstanceOf[(Any, Any, Any, Any) => F[
+                                dom.Node
+                              ]](n, d, i, group)
+                            val before =
+                              beforeFn.asInstanceOf[(Any, Any, Any, Any) => F[
+                                dom.Node
+                              ]](n, d, i, group)
+                            (name, before).tupled.flatMap {
+                              case (name, before) =>
+                                F.delay(
+                                  parent.insertBefore(name, before)
+                                )
+                            }
+                          }
+                        )
+                      )
+                    }
+
                   case Select(selector) =>
                     log("Step=Select") *> F.defer {
                       go(
@@ -1613,7 +1669,20 @@ object Selection {
                             F.delay {
                               n.asInstanceOf[dom.Element]
                                 .querySelector(selector)
-                                .asInstanceOf[N0]
+                            }
+                          }
+                        )
+                      )
+                    }
+
+                  case SelectParent() =>
+                    log("Step=SelectParent") *> F.defer {
+                      go(
+                        Continue(
+                          t,
+                          SelectFn { (n: N0, _: D0, _: Int, _: List[N0]) =>
+                            F.delay {
+                              n.asInstanceOf[dom.Node].parentNode
                             }
                           }
                         )
@@ -1849,6 +1918,14 @@ object Selection {
       fn: (N, D, Int, List[N]) => Boolean
   ) extends Action[F, N, D, PN, PD]
 
+  private case class Insert[F[_], N, D, PN, PD](name: String, before: String)
+      extends Action[F, N, D, PN, PD]
+
+  private case class InsertFn[F[_], N, D, PN, PD, N0, N1](
+      name: (N, D, Int, List[N]) => F[N0],
+      before: (N, D, Int, List[N]) => F[N1]
+  ) extends Action[F, N, D, PN, PD]
+
   private case class Join[F[_], N, D, PN, PD, N0](
       onEnter: Enter[F, N, D, PN, PD] => Selection[F, N0, D, PN, PD],
       onUpdate: Selection[F, N, D, PN, PD] => Selection[F, N, D, PN, PD],
@@ -1883,6 +1960,9 @@ object Selection {
       extends Action[F, N, D, PN, PD]
 
   private case class Select[F[_], N, D, PN, PD](selector: String)
+      extends Action[F, N, D, PN, PD]
+
+  private case class SelectParent[F[_], N, D, PN, PD]()
       extends Action[F, N, D, PN, PD]
 
   private case class SelectFn[F[_], N, D, PN, PD, N0](

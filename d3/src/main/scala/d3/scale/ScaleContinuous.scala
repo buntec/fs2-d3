@@ -1,10 +1,10 @@
 package d3.scale
 
 import cats.implicits._
+import d3.interpolate.Interpolator
 
 import scala.collection.Searching.Found
 import scala.collection.Searching.InsertionPoint
-import d3.interpolate.Interpolator
 
 trait ScaleContinuous[A] {
 
@@ -37,7 +37,7 @@ object ScaleContinuous {
     val n = 10
     val delta = (d1 - d0) / (n - 1)
     val ticks = List.tabulate(10)(i => d0 + i * delta)
-    val tickFormat = (x: Double) => x.toString
+    val tickFormat = (x: Double) => f"$x%.2f" // TODO
     genericNumeric(domain, range, false, identity, identity, ticks, tickFormat)
   }
 
