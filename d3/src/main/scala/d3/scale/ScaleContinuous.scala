@@ -16,26 +16,55 @@ trait ScaleContinuousNumeric extends ScaleContinuous[Double] {
 
   def invert(x: Double): Double
 
+  private[d3] def ticks: List[Double]
+
+  private[d3] def tickFormat: Double => String
+
+  private[d3] def rangeMin: Double
+
+  private[d3] def rangeMax: Double
+
 }
 
 object ScaleContinuous {
 
-  def genericNumeric(
+  def linear(
+      domain: (Double, Double),
+      range: (Double, Double)
+  ): ScaleContinuousNumeric = {
+    val d0 = domain._1
+    val d1 = domain._2
+    val n = 10
+    val delta = (d1 - d0) / (n - 1)
+    val ticks = List.tabulate(10)(i => d0 + i * delta)
+    val tickFormat = (x: Double) => x.toString
+    genericNumeric(domain, range, false, identity, identity, ticks, tickFormat)
+  }
+
+  private def genericNumeric(
       domain: (Double, Double),
       range: (Double, Double),
       clamp: Boolean,
       transform: Double => Double,
-      untransform: Double => Double
+      untransform: Double => Double,
+      ticks0: List[Double],
+      tickFormat0: Double => String
   ): ScaleContinuousNumeric = {
 
     val d0 = domain._1
     val d1 = domain._2
     val m = bimap((transform(d0), transform(d1)), range)
-    val c = if (clamp) clamper(domain._1, domain._2) else identity
-
+    val c = if (clamp) clamper(domain._1, domain._2) else identity[Double] _
     val mi = bimap(range, (transform(d0), transform(d1)))
 
     new ScaleContinuousNumeric {
+
+      override private[d3] def rangeMin: Double = range._1
+
+      override private[d3] def rangeMax: Double = range._2
+
+      override def ticks: List[Double] = ticks0
+      override def tickFormat: Double => String = tickFormat0
       override def apply(x: Double): Double = m(transform(c(x)))
       override def invert(x: Double): Double = c(untransform(mi(x)))
     }
@@ -51,7 +80,7 @@ object ScaleContinuous {
     val d0 = domain._1
     val d1 = domain._2
     val m = bimap((transform(d0), transform(d1)), range)
-    val c = if (clamp) clamper(domain._1, domain._2) else identity
+    val c = if (clamp) clamper(domain._1, domain._2) else identity[Double] _
     new ScaleContinuous[A] {
       override def apply(x: Double): A = m(transform(c(x)))
     }
@@ -65,7 +94,7 @@ object ScaleContinuous {
   ): ScaleContinuous[V] = {
     val transformedDomain = domain.map(transform)
     val m = polymap(transformedDomain, range)
-    val c = if (clamp) clamper(domain.min, domain.max) else identity
+    val c = if (clamp) clamper(domain.min, domain.max) else identity[Double] _
     new ScaleContinuous[V] {
       override def apply(x: Double): V = m(transform(c(x)))
     }
@@ -80,8 +109,6 @@ object ScaleContinuous {
     require(a < b)
     (x: Double) => math.max(a, math.min(b, x))
   }
-
-  private val identity = (x: Double) => x
 
   private def bimap[V: Interpolator](
       domain: (Double, Double),
